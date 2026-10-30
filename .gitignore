@@ -1,0 +1,17 @@
+# Build output
+bin/
+obj/
+publish/
+
+# Local state of the server when it runs on a development machine (database, password hash, tokens)
+bummsn.de/src/Dashboard/data/
+
+# Editors
+.vs/
+*.user
+
+# OpenSCAD exports are generated from the .scad file
+mount/*.stl
+
+# Server-specific deployment settings
+bummsn.de/deploy/deploy.env

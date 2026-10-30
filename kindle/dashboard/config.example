@@ -1,0 +1,18 @@
+# Kindle dashboard: settings of the client on the Kindle.
+# Copy this file to /mnt/us/dashboard/config (on the USB drive: dashboard/config) and fill in both values.
+
+# Address of the server, without a slash at the end
+URL="https://example.org/dashboard"
+
+# Device token, printed by "Dashboard new-device-token" on the server (see the server README)
+TOKEN="paste-the-token-here"
+
+# Optional: seconds for taps after a press on the power button (default 60)
+#INTERACTIVE_SECONDS=60
+
+# Optional: front light (0 = off, up to 24) during those seconds. Default: the brightness set on the Kindle.
+# While the Kindle only wakes up to update the picture, the light stays off.
+#FRONTLIGHT_INTERACTIVE=12
+
+# Optional: a flashing full refresh against ghosting after this many pictures (default 12)
+#FULL_REFRESH_EVERY=12

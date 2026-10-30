@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<!-- Kindle dashboard: web page for the phone. Author: Thorsten Kummerow thorsten.kummerow (at) gmail (dot) com -->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1b1a" media="(prefers-color-scheme: dark)">
+<title>Wandtafel</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
+      integrity="sha512-h9FcoyWjHcOcmEVkxOfTLnmZFWIH0iZhZT1H2TbOq55xssQGEJHEaIm+PgoUaZbRvQTNTluNOEfb1ZRy6D3BOw==" crossorigin="anonymous">
+<style>
+:root {
+   --bg: #f6f5f2; --card: #ffffff; --text: #1b1b1a; --muted: #6b6a66; --line: #e3e1dc;
+   --accent: #1b1b1a; --accent-text: #ffffff; --danger: #b3261e; --done: #9a9893;
+   --radius: 14px; --gap: 12px;
+   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+   color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+   :root { --bg: #1b1b1a; --card: #262624; --text: #f1f0ec; --muted: #a3a19b; --line: #3a3936; --accent: #f1f0ec; --accent-text: #1b1b1a; --danger: #ff8a80; --done: #77756f; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { padding: 0 16px calc(88px + env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
+header { display: flex; align-items: center; justify-content: space-between; padding: 18px 0 8px; }
+h1 { font-size: 1.5rem; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 24px 0 8px; }
+button, input, textarea { font: inherit; color: inherit; }
+button { border: 0; border-radius: 10px; padding: 10px 14px; background: var(--accent); color: var(--accent-text); cursor: pointer; }
+button.ghost { background: transparent; color: var(--muted); padding: 8px 10px; }
+button.small { padding: 6px 10px; font-size: 0.9rem; }
+button:disabled { opacity: 0.5; }
+input, textarea { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--card); }
+textarea { resize: vertical; min-height: 70px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+.row { display: flex; gap: 8px; align-items: center; }
+.row > input { flex: 1; min-width: 0; }
+.stack { display: grid; gap: var(--gap); }
+.hidden { display: none !important; }
+.muted { color: var(--muted); }
+.error { color: var(--danger); min-height: 1.2em; }
+ul.items { list-style: none; margin: 0; padding: 0; }
+ul.items li { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+ul.items li:last-child { border-bottom: 0; }
+ul.items .text { flex: 1; min-width: 0; overflow-wrap: anywhere; cursor: text; white-space: pre-wrap; }
+ul.items li.done .text { color: var(--done); text-decoration: line-through; }
+ul.items input[type=checkbox] { width: 24px; height: 24px; flex: none; accent-color: var(--accent); }
+.badge { font-size: 0.8rem; border: 1px solid var(--text); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.badge.overdue { background: var(--text); color: var(--bg); }
+.delete { color: var(--muted); background: transparent; padding: 6px 8px; font-size: 1.2rem; line-height: 1; }
+nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; background: var(--card); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+nav button { flex: 1; max-width: 128px; background: transparent; color: var(--muted); border-radius: 0; padding: 12px 4px 14px; font-size: 0.8rem; display: grid; justify-items: center; gap: 2px; }
+nav button span { font-size: 1.3rem; }
+nav button.active { color: var(--text); font-weight: 600; }
+#map { height: 320px; border-radius: var(--radius); border: 1px solid var(--line); z-index: 0; }
+.results { list-style: none; margin: 0; padding: 0; }
+.results li { padding: 10px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.preview { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; display: block; }
+dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
+dl.facts dt { color: var(--muted); }
+dl.facts dd { margin: 0; }
+svg.spark { width: 100%; height: 80px; display: block; }
+svg.spark polyline { fill: none; stroke: var(--text); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+label { display: grid; gap: 4px; font-size: 0.9rem; color: var(--muted); }
+#login { margin-top: 15vh; }
+</style>
+</head>
+<body>
+
+<header>
+   <h1>Wandtafel</h1>
+   <button id="logout" class="ghost hidden" type="button">Abmelden</button>
+</header>
+
+<!-- Login -->
+<section id="login" class="card stack hidden">
+   <form id="loginForm" class="stack">
+      <label>Passwort<input id="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit">Anmelden</button>
+      <div id="loginError" class="error"></div>
+   </form>
+</section>
+
+<main id="app" class="hidden">
+   <!-- Shopping list -->
+   <section data-tab="shopping">
+      <h2>Einkaufsliste</h2>
+      <form class="row add" data-kind="shopping">
+         <input name="text" placeholder="Was fehlt?" maxlength="200" autocomplete="off" required>
+         <button type="submit">+</button>
+      </form>
+      <div class="card"><ul class="items" id="list-shopping"></ul></div>
+      <p><button id="clearShopping" class="ghost small" type="button">Abgehakte entfernen</button></p>
+   </section>
+
+   <!-- Reminders -->
+   <section data-tab="reminder" class="hidden">
+      <h2>Erinnerungen</h2>
+      <form class="stack add" data-kind="reminder">
+         <input name="text" placeholder="Woran erinnern?" maxlength="200" autocomplete="off" required>
+         <div class="row">
+            <input name="date" type="date" required>
+            <input name="time" type="time" style="max-width: 9em">
+            <button type="submit">+</button>
+         </div>
+      </form>
+      <div class="card" style="margin-top: var(--gap)"><ul class="items" id="list-reminder"></ul></div>
+      <p><button id="clearReminders" class="ghost small" type="button">Erledigte entfernen</button></p>
+   </section>
+
+   <!-- Notes -->
+   <section data-tab="note" class="hidden">
+      <h2>Notizen</h2>
+      <form class="stack add" data-kind="note">
+         <textarea name="text" placeholder="Notiz für die Wandtafel" maxlength="200" required></textarea>
+         <button type="submit">Notiz hinzufügen</button>
+      </form>
+      <div class="card" style="margin-top: var(--gap)"><ul class="items" id="list-note"></ul></div>
+   </section>
+
+   <!-- Kindle -->
+   <section data-tab="kindle" class="hidden">
+      <h2>So sieht die Tafel gerade aus</h2>
+      <img id="preview" class="preview" alt="Aktuelles Bild des Kindle" width="1448" height="1072">
+      <h2>Kindle</h2>
+      <div class="card">
+         <dl class="facts">
+            <dt>Letzter Kontakt</dt><dd id="lastSeen">–</dd>
+            <dt>Akku</dt><dd id="battery">–</dd>
+            <dt>Nächstes Aufwachen</dt><dd id="nextWake">–</dd>
+            <dt>Bild erzeugt</dt><dd id="rendered">–</dd>
+         </dl>
+      </div>
+      <h2>Akku, letzte 7 Tage</h2>
+      <div class="card"><svg class="spark" id="spark" viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div id="sparkEmpty" class="muted">Noch keine Werte</div></div>
+   </section>
+
+   <!-- Settings -->
+   <section data-tab="settings" class="hidden">
+      <h2>Ort fürs Wetter</h2>
+      <div class="stack">
+         <form id="searchForm" class="row">
+            <input id="search" placeholder="Ort suchen" autocomplete="off">
+            <button type="submit">Suchen</button>
+         </form>
+         <ul class="results" id="results"></ul>
+         <div id="map"></div>
+         <div class="row">
+            <button id="locate" class="small" type="button">Mein Standort</button>
+            <span class="muted" id="placeHint">Karte antippen oder Markierung ziehen</span>
+         </div>
+         <label>Name auf der Tafel<input id="placeName" maxlength="60"></label>
+         <div class="muted" id="placeFacts"></div>
+      </div>
+      <h2>Aufwachen des Kindle (Akkubetrieb)</h2>
+      <div class="card stack">
+         <label>Alle … Minuten<input id="interval" type="number" min="5" max="1440" step="5"></label>
+         <div class="grid2">
+            <label>Ruhe ab<input id="quietFrom" type="time"></label>
+            <label>Ruhe bis<input id="quietTo" type="time"></label>
+         </div>
+         <div class="muted">In der Ruhezeit schläft der Kindle durch. Fällige Erinnerungen mit Uhrzeit wecken ihn trotzdem.</div>
+      </div>
+      <p class="row"><button id="saveSettings" type="button">Speichern</button><span id="settingsStatus" class="muted"></span></p>
+   </section>
+</main>
+
+<nav id="nav" class="hidden">
+   <button type="button" data-tab="shopping" class="active"><span>🛒</span>Einkauf</button>
+   <button type="button" data-tab="reminder"><span>⏰</span>Erinnern</button>
+   <button type="button" data-tab="note"><span>📝</span>Notizen</button>
+   <button type="button" data-tab="kindle"><span>📟</span>Kindle</button>
+   <button type="button" data-tab="settings"><span>⚙️</span>Ort</button>
+</nav>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
+        integrity="sha512-puJW3E/qXDqYp9IfhAI54BJEaWIfloJ7JWs7OeD5i6ruC9JZL1gERT1wjtwXFlh7CjE7ZJ+/vcRZRkIYIb6p4g==" crossorigin="anonymous"></script>
+<script>
+"use strict";
+// The page lives below a path prefix (/dashboard/), the API next to it
+const api = location.pathname.replace(/\/[^/]*$/, "") + "/api";
+const $ = id => document.getElementById(id);
+let items = [];
+let settings = null;
+let map = null, marker = null;
+
+async function call(method, path, body) {
+   const response = await fetch(api + path, {
+      method,
+      headers: body === undefined ? {} : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body)
+   });
+   if (response.status === 401 && path !== "/login") {
+      showLogin();
+      throw new Error("Nicht angemeldet");
+   }
+   if (!response.ok) {
+      let message = `Fehler ${response.status}`;
+      try { message = (await response.json()).error ?? message; } catch { }
+      throw new Error(message);
+   }
+   return response.status === 204 ? null : response.json();
+}
+
+// --- Login ---
+
+function showLogin() {
+   $("login").classList.remove("hidden");
+   for (const id of ["app", "nav", "logout"]) $(id).classList.add("hidden");
+   $("password").focus();
+}
+
+function showApp() {
+   $("login").classList.add("hidden");
+   for (const id of ["app", "nav", "logout"]) $(id).classList.remove("hidden");
+   loadItems();
+}
+
+$("loginForm").addEventListener("submit", async event => {
+   event.preventDefault();
+   $("loginError").textContent = "";
+   try {
+      await call("POST", "/login", { password: $("password").value });
+      $("password").value = "";
+      showApp();
+   } catch {
+      $("loginError").textContent = "Das Passwort stimmt nicht.";
+   }
+});
+
+$("logout").addEventListener("click", async () => {
+   await call("POST", "/logout");
+   showLogin();
+});
+
+// --- Tabs ---
+
+let currentTab = "shopping";
+for (const button of document.querySelectorAll("nav button")) {
+   button.addEventListener("click", () => openTab(button.dataset.tab));
+}
+
+function openTab(tab) {
+   currentTab = tab;
+   for (const button of document.querySelectorAll("nav button")) button.classList.toggle("active", button.dataset.tab === tab);
+   for (const section of document.querySelectorAll("main section")) section.classList.toggle("hidden", section.dataset.tab !== tab);
+   if (tab === "kindle") loadKindle();
+   if (tab === "settings") loadSettings();
+   try { localStorage.setItem("tab", tab); } catch { }
+}
+
+// --- Items ---
+
+async function loadItems() {
+   try {
+      items = await call("GET", "/items");
+      renderItems();
+   } catch { }
+}
+
+for (const form of document.querySelectorAll("form.add")) {
+   form.addEventListener("submit", async event => {
+      event.preventDefault();
+      const kind = form.dataset.kind;
+      const text = form.elements.text.value.trim();
+      if (!text) return;
+      let due = null;
+      if (kind === "reminder") {
+         due = form.elements.date.value;
+         if (form.elements.time.value) due += "T" + form.elements.time.value;
+      }
+      try {
+         await call("POST", "/items", { kind, text, due });
+         form.reset();
+         if (kind === "reminder") form.elements.date.value = today();
+         await loadItems();
+         form.elements.text.focus();
+      } catch (error) {
+         alert(error.message);
+      }
+   });
+}
+
+function renderItems() {
+   renderList("shopping", items.filter(item => item.kind === "shopping")
+      .sort((a, b) => (a.done !== null) - (b.done !== null) || a.id - b.id), "Die Liste ist leer.");
+   renderList("reminder", items.filter(item => item.kind === "reminder")
+      .sort((a, b) => (a.done !== null) - (b.done !== null) || (a.due ?? "").localeCompare(b.due ?? "")), "Keine Erinnerungen.");
+   renderList("note", items.filter(item => item.kind === "note").sort((a, b) => b.id - a.id), "Keine Notizen.");
+}
+
+function renderList(kind, list, empty) {
+   const ul = $("list-" + kind);
+   ul.replaceChildren();
+   if (list.length === 0) {
+      const li = document.createElement("li");
+      li.className = "muted";
+      li.textContent = empty;
+      ul.append(li);
+      return;
+   }
+   for (const item of list) {
+      const li = document.createElement("li");
+      li.classList.toggle("done", item.done !== null);
+      if (kind !== "note") {
+         const box = document.createElement("input");
+         box.type = "checkbox";
+         box.checked = item.done !== null;
+         box.setAttribute("aria-label", kind === "shopping" ? "Abhaken" : "Erledigt");
+         box.addEventListener("change", () => update(item.id, { done: box.checked }));
+         li.append(box);
+      }
+      const text = document.createElement("span");
+      text.className = "text";
+      text.textContent = item.text;
+      text.addEventListener("click", () => editText(item, text));
+      li.append(text);
+      if (kind === "reminder" && item.due) {
+         const badge = document.createElement("span");
+         badge.className = "badge";
+         badge.textContent = dueLabel(item.due);
+         badge.classList.toggle("overdue", item.done === null && dueDate(item.due) <= new Date());
+         li.append(badge);
+      }
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "delete";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", "Löschen");
+      remove.addEventListener("click", async () => {
+         await call("DELETE", "/items/" + item.id);
+         await loadItems();
+      });
+      li.append(remove);
+      ul.append(li);
+   }
+}
+
+// Tapping a text turns it into an input field, Enter or leaving it saves
+function editText(item, span) {
+   const input = document.createElement(item.kind === "note" ? "textarea" : "input");
+   input.value = item.text;
+   input.maxLength = 200;
+   span.replaceWith(input);
+   input.focus();
+   let finished = false;
+   const finish = async save => {
+      if (finished) return;
+      finished = true;
+      const text = input.value.trim();
+      if (save && text && text !== item.text) await update(item.id, { text });
+      else renderItems();
+   };
+   input.addEventListener("blur", () => finish(true));
+   input.addEventListener("keydown", event => {
+      if (event.key === "Enter" && (item.kind !== "note" || event.ctrlKey)) { event.preventDefault(); finish(true); }
+      if (event.key === "Escape") finish(false);
+   });
+}
+
+async function update(id, patch) {
+   try {
+      await call("PATCH", "/items/" + id, patch);
+   } catch (error) {
+      alert(error.message);
+   }
+   await loadItems();
+}
+
+$("clearShopping").addEventListener("click", async () => { await call("POST", "/items/delete-done?kind=shopping"); await loadItems(); });
+$("clearReminders").addEventListener("click", async () => { await call("POST", "/items/delete-done?kind=reminder"); await loadItems(); });
+
+function today() {
+   const now = new Date();
+   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+// "2026-10-31" is due at the end of that day, "2026-10-31T18:00" at that time
+function dueDate(due) {
+   return due.includes("T") ? new Date(due) : new Date(due + "T23:59:59");
+}
+
+function dueLabel(due) {
+   const date = new Date(due.slice(0, 10) + "T12:00");
+   const days = Math.round((date - new Date(today() + "T12:00")) / 86400000);
+   let label = days === 0 ? "heute" : days === 1 ? "morgen" : days === -1 ? "gestern"
+      : date.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
+   if (due.includes("T")) label += " " + due.slice(11, 16);
+   return label;
+}
+
+// --- Kindle ---
+
+async function loadKindle() {
+   try {
+      const state = await call("GET", "/state");
+      $("preview").src = `${api}/preview.png?rev=${state.frame.rev}`;
+      const device = state.device;
+      $("lastSeen").textContent = device.lastSeen ? relative(device.lastSeen) : "noch nie";
+      $("battery").textContent = device.battery === null ? "–" : `${device.battery} %${device.charging ? " (lädt)" : ""}`;
+      $("nextWake").textContent = device.nextWakeAt ? clock(device.nextWakeAt) : "–";
+      $("rendered").textContent = clock(state.frame.renderedAt);
+      drawBattery(await call("GET", "/battery?days=7"));
+   } catch { }
+}
+
+function drawBattery(entries) {
+   const svg = $("spark");
+   $("sparkEmpty").classList.toggle("hidden", entries.length > 1);
+   svg.classList.toggle("hidden", entries.length <= 1);
+   if (entries.length <= 1) return;
+   const start = Date.parse(entries[0].time), span = Math.max(1, Date.parse(entries.at(-1).time) - start);
+   const points = entries.map(entry => `${(Date.parse(entry.time) - start) / span * 100},${100 - entry.level}`).join(" ");
+   svg.innerHTML = `<polyline points="${points}"/>`;
+}
+
+function clock(iso) {
+   return new Date(iso).toLocaleString("de-DE", { weekday: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function relative(iso) {
+   const minutes = Math.round((Date.now() - Date.parse(iso)) / 60000);
+   if (minutes < 1) return "gerade eben";
+   if (minutes < 60) return `vor ${minutes} min`;
+   return clock(iso);
+}
+
+// --- Settings with map ---
+
+async function loadSettings() {
+   settings = await call("GET", "/settings");
+   $("placeName").value = settings.placeName;
+   $("interval").value = settings.intervalMinutes;
+   $("quietFrom").value = settings.quietFrom;
+   $("quietTo").value = settings.quietTo;
+   showFacts();
+   if (!map) {
+      map = L.map("map").setView([settings.latitude, settings.longitude], 11);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+         maxZoom: 19,
+         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      }).addTo(map);
+      marker = L.marker([settings.latitude, settings.longitude], { draggable: true }).addTo(map);
+      marker.on("dragend", () => choose(marker.getLatLng().lat, marker.getLatLng().lng));
+      map.on("click", event => choose(event.latlng.lat, event.latlng.lng));
+   } else {
+      setMarker(settings.latitude, settings.longitude);
+   }
+   setTimeout(() => map.invalidateSize(), 50);
+
+   // Never saved: start with the rough position of the IP address
+   const state = await call("GET", "/state");
+   if (!state.settingsSaved) {
+      try {
+         const position = await call("GET", "/geo/ip");
+         await choose(position.latitude, position.longitude, 10);
+         $("placeHint").textContent = "Grob über die IP-Adresse geschätzt – bitte prüfen";
+      } catch { }
+   }
+}
+
+function setMarker(lat, lon, zoom) {
+   marker.setLatLng([lat, lon]);
+   map.setView([lat, lon], zoom ?? map.getZoom());
+}
+
+async function choose(lat, lon, zoom) {
+   setMarker(lat, lon, zoom);
+   settings = { ...settings, latitude: round(lat), longitude: round(lon) };
+   $("settingsStatus").textContent = "Ort wird ermittelt …";
+   try {
+      const place = await call("GET", `/geo/place?lat=${lat}&lon=${lon}`);
+      settings.timeZone = place.timeZone;
+      $("placeName").value = place.name;
+      $("settingsStatus").textContent = "Noch nicht gespeichert";
+   } catch {
+      $("settingsStatus").textContent = "Ortsname nicht gefunden, bitte selbst eintragen";
+   }
+   showFacts();
+}
+
+function showFacts() {
+   $("placeFacts").textContent = `${settings.latitude.toFixed(4)}, ${settings.longitude.toFixed(4)} · Zeitzone ${settings.timeZone}`;
+}
+
+function round(value) { return Math.round(value * 10000) / 10000; }
+
+$("searchForm").addEventListener("submit", async event => {
+   event.preventDefault();
+   const query = $("search").value.trim();
+   if (!query) return;
+   const results = await call("GET", "/geo/search?q=" + encodeURIComponent(query));
+   const ul = $("results");
+   ul.replaceChildren();
+   for (const result of results) {
+      const li = document.createElement("li");
+      li.textContent = result.name;
+      li.addEventListener("click", () => { ul.replaceChildren(); choose(result.latitude, result.longitude, 12); });
+      ul.append(li);
+   }
+   if (results.length === 0) ul.innerHTML = '<li class="muted">Nichts gefunden</li>';
+});
+
+$("locate").addEventListener("click", () => {
+   if (!navigator.geolocation) return;
+   $("settingsStatus").textContent = "Standort wird abgefragt …";
+   navigator.geolocation.getCurrentPosition(
+      position => choose(position.coords.latitude, position.coords.longitude, 13),
+      () => { $("settingsStatus").textContent = "Standort nicht freigegeben"; },
+      { enableHighAccuracy: false, timeout: 15000 });
+});
+
+$("saveSettings").addEventListener("click", async () => {
+   const updated = {
+      ...settings,
+      placeName: $("placeName").value.trim() || settings.placeName,
+      intervalMinutes: Number($("interval").value),
+      quietFrom: $("quietFrom").value || "00:00",
+      quietTo: $("quietTo").value || "00:00"
+   };
+   try {
+      settings = await call("PUT", "/settings", updated);
+      $("settingsStatus").textContent = "Gespeichert";
+      $("placeHint").textContent = "Karte antippen oder Markierung ziehen";
+   } catch (error) {
+      $("settingsStatus").textContent = error.message;
+   }
+});
+
+// --- Start ---
+
+document.addEventListener("visibilitychange", () => {
+   if (document.visibilityState === "visible" && !$("app").classList.contains("hidden")) {
+      loadItems();
+      if (currentTab === "kindle") loadKindle();
+   }
+});
+
+(async () => {
+   document.querySelector('form[data-kind=reminder]').elements.date.value = today();
+   const session = await (await fetch(api + "/session")).json();
+   if (!session.loggedIn) {
+      showLogin();
+      if (!session.hasPassword) $("loginError").textContent = "Noch kein Passwort gesetzt – siehe README (set-password).";
+      return;
+   }
+   showApp();
+   let saved = null;
+   try { saved = localStorage.getItem("tab"); } catch { }
+   if (saved) openTab(saved);
+})();
+</script>
+</body>
+</html>
