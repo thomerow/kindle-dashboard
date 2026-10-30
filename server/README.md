@@ -10,7 +10,6 @@ phone (web page) ── login cookie ──>  server  <── device token ─�
                                          └──> Bright Sky (weather), OpenStreetMap services (place)
 ```
 
-The folder is named after the author's server (bummsn.de); nothing in the code depends on that name.
 The interface is described in [`API.md`](API.md).
 
 ## Contents
@@ -143,7 +142,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ```bash
 git clone <url of this repository> ~/kindle-dashboard
-cd ~/kindle-dashboard/bummsn.de
+cd ~/kindle-dashboard/server
 cp deploy/deploy.env.example deploy/deploy.env
 nano deploy/deploy.env
 ```
@@ -217,7 +216,7 @@ The token goes into `dashboard/config` on the Kindle, see the [Kindle README](..
 
 ```bash
 cd ~/kindle-dashboard && git pull
-cd bummsn.de && deploy/deploy.sh
+cd server && deploy/deploy.sh
 ```
 
 The data in `/var/lib/<name>` stays. The Kindle notices nothing except a moment without an answer, which it treats like

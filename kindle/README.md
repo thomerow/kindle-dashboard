@@ -1,7 +1,7 @@
 # Kindle client
 
 Turns a jailbroken Kindle Paperwhite 3 into the display of the [Kindle dashboard](../README.md): a shell script that
-fetches the picture from the [server](../bummsn.de/README.md), shows it and sleeps until the server wants it to wake up
+fetches the picture from the [server](../server/README.md), shows it and sleeps until the server wants it to wake up
 again. A press on the power button wakes it up for taps.
 
 Tested on a **Kindle Paperwhite 3 (7th generation, 2015), firmware 5.16.2.1.1**, jailbroken with WinterBreak2.
@@ -73,7 +73,7 @@ Kindle, handy for looking around.
 ## 2. Installing the client
 
 The server must be running and you need its URL and a device token (see the
-[server README](../bummsn.de/README.md#first-start-password-and-device-token)).
+[server README](../server/README.md#first-start-password-and-device-token)).
 
 1. Connect the Kindle by USB and copy:
 

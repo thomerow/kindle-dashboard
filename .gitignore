@@ -4,7 +4,7 @@ obj/
 publish/
 
 # Local state of the server when it runs on a development machine (database, password hash, tokens)
-bummsn.de/src/Dashboard/data/
+server/src/Dashboard/data/
 
 # Editors
 .vs/
@@ -14,4 +14,7 @@ bummsn.de/src/Dashboard/data/
 mount/*.stl
 
 # Server-specific deployment settings
-bummsn.de/deploy/deploy.env
+server/deploy/deploy.env
+
+# Local notes that are not part of the repository
+private/

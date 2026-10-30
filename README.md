@@ -41,7 +41,7 @@ from anywhere with a phone. Items can be checked off right on the Kindle by tapp
 
 ## Setting it up
 
-1. **[Server](bummsn.de/README.md):** install the ASP.NET Core application behind nginx, set the password and create a
+1. **[Server](server/README.md):** install the ASP.NET Core application behind nginx, set the password and create a
    device token for the Kindle.
 2. **[Kindle](kindle/README.md):** jailbreak it (WinterBreak2), copy the client, enter the server URL and the token,
    start it.
@@ -53,7 +53,7 @@ Each README goes through every step, from a Kindle in factory state and an empty
 
 | Folder | Content |
 |---|---|
-| [`bummsn.de/`](bummsn.de/README.md) | server: ASP.NET Core 10, SkiaSharp, SQLite; [API](bummsn.de/API.md); deployment (systemd, nginx). Named after the author's server, nothing depends on the name. |
+| [`server/`](server/README.md) | ASP.NET Core 10, SkiaSharp, SQLite; [API](server/API.md); deployment (systemd, nginx) |
 | [`kindle/`](kindle/README.md) | client for the Kindle (`sh` and `awk`), the start scriptlet, diagnostic scriptlets |
 | `docs/` | pictures for the documentation |
 | `mount/` | 3D-printed mount for a door, OpenSCAD (follows) |
@@ -76,8 +76,9 @@ Planned:
   [Open-Meteo](https://open-meteo.com) for time zones, [ipwho.is](https://ipwho.is) for the first guess of the place,
   [Leaflet](https://leafletjs.com) for the map on the web page.
 - [SkiaSharp](https://github.com/mono/SkiaSharp) for drawing, and the [Noto Sans](https://notofonts.github.io) font
-  (SIL Open Font License 1.1, see `bummsn.de/src/Dashboard/Fonts/OFL.txt`).
+  (SIL Open Font License 1.1, see `server/src/Dashboard/Fonts/OFL.txt`).
 
 ## License
 
-Not decided yet.
+[MIT](LICENSE), except for the Noto Sans font files in `server/src/Dashboard/Fonts/`, which are under the
+SIL Open Font License 1.1 (`OFL.txt` next to them).

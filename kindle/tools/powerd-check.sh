@@ -44,7 +44,7 @@ wait_event wakeupFromSuspend 400
 lipc-set-prop -i com.lab126.powerd deferSuspend 60 >> "$LOG" 2>&1
 log "deferSuspend rc=$?"
 i=0; while [ $i -lt 30 ] && [ "$(wifi)" != CONNECTED ]; do sleep 1; i=$((i+1)); done
-log "after wake: wifi $(wifi) after ${i}s, curl $(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://bummsn.de/)"
+log "after wake: wifi $(wifi) after ${i}s, curl $(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://example.com/)"
 say "Runde 1: aufgewacht (Wecker)." "Runde 2: Kindle schlaeft gleich wieder." "Nach ca. 30 s EINMAL kurz den Knopf druecken."
 sleep 8
 
