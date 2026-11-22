@@ -62,8 +62,15 @@ nav button.active { color: var(--text); font-weight: 600; }
 dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
 dl.facts dt { color: var(--muted); }
 dl.facts dd { margin: 0; }
-svg.spark { width: 100%; height: 80px; display: block; }
-svg.spark polyline { fill: none; stroke: var(--text); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.chart { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.chart-y { position: relative; width: 2.8em; }
+.chart-x { grid-column: 2; position: relative; height: 1.3em; margin-top: 6px; }
+.chart-y span, .chart-x span { position: absolute; white-space: nowrap; }
+.chart-y span { right: 0; transform: translateY(-50%); }
+.chart-x span { transform: translateX(-50%); }
+svg.spark { width: 100%; height: 140px; display: block; overflow: visible; }
+svg.spark line { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+svg.spark polyline { fill: none; stroke: var(--text); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 label { display: grid; gap: 4px; font-size: 0.9rem; color: var(--muted); }
 #login { margin-top: 15vh; }
@@ -136,7 +143,7 @@ label { display: grid; gap: 4px; font-size: 0.9rem; color: var(--muted); }
          </dl>
       </div>
       <h2>Akku, letzte 7 Tage</h2>
-      <div class="card"><svg class="spark" id="spark" viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div id="sparkEmpty" class="muted">Noch keine Werte</div></div>
+      <div class="card"><div class="chart" id="spark"><div class="chart-y" id="sparkY"></div><svg class="spark" id="sparkPlot" viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div class="chart-x" id="sparkX"></div></div><div id="sparkEmpty" class="muted">Noch keine Werte</div></div>
    </section>
 
    <!-- Settings -->
@@ -408,14 +415,39 @@ async function loadKindle() {
    } catch { }
 }
 
+/** Battery chart: today and the six days before, one column per day, grid at every 25 %. */
 function drawBattery(entries) {
-   const svg = $("spark");
-   $("sparkEmpty").classList.toggle("hidden", entries.length > 1);
-   svg.classList.toggle("hidden", entries.length <= 1);
-   if (entries.length <= 1) return;
-   const start = Date.parse(entries[0].time), span = Math.max(1, Date.parse(entries.at(-1).time) - start);
-   const points = entries.map(entry => `${(Date.parse(entry.time) - start) / span * 100},${100 - entry.level}`).join(" ");
-   svg.innerHTML = `<polyline points="${points}"/>`;
+   // Midnights of the seven days and the one after today; setDate keeps them right across DST changes
+   const midnights = [];
+   for (let i = 0; i <= 7; i++) {
+      const day = new Date();
+      day.setHours(0, 0, 0, 0);
+      day.setDate(day.getDate() - 6 + i);
+      midnights.push(day.getTime());
+   }
+   const start = midnights[0], span = midnights[7] - start;
+   const x = time => (time - start) / span * 100;
+
+   // Points from the start of the first day on; the level at midnight is interpolated from the entry before
+   const values = entries.map(entry => ({ time: Date.parse(entry.time), level: entry.level }));
+   const visible = values.filter(value => value.time >= start);
+   const before = values.findLast(value => value.time < start);
+   if (before && visible.length)
+      visible.unshift({ time: start, level: before.level + (visible[0].level - before.level) * (start - before.time) / (visible[0].time - before.time) });
+
+   const empty = visible.length <= 1;
+   $("sparkEmpty").classList.toggle("hidden", !empty);
+   $("spark").classList.toggle("hidden", empty);
+   if (empty) return;
+
+   const levels = [0, 25, 50, 75, 100];
+   const grid = levels.map(level => `<line x1="0" x2="100" y1="${100 - level}" y2="${100 - level}"/>`)
+      .concat(midnights.slice(1, 7).map(time => `<line x1="${x(time)}" x2="${x(time)}" y1="0" y2="100"/>`));
+   const points = visible.map(value => `${x(value.time)},${100 - value.level}`).join(" ");
+   $("sparkPlot").innerHTML = `${grid.join("")}<polyline points="${points}"/>`;
+   $("sparkY").innerHTML = levels.map(level => `<span style="top: ${100 - level}%">${level}&nbsp;%</span>`).join("");
+   $("sparkX").innerHTML = midnights.slice(0, 7).map(time =>
+      `<span style="left: ${x(time + span / 14)}%">${new Date(time).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}</span>`).join("");
 }
 
 function clock(iso) {
