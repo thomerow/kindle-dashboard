@@ -37,7 +37,7 @@ from anywhere with a phone. Items can be checked off right on the Kindle by tapp
 - A **server** that is reachable from the internet with a domain and HTTPS, e.g. a small VPS with Ubuntu 24.04. The
   server part needs very little (it runs well on one CPU core).
 - Wi-Fi where the Kindle hangs.
-- Optional: a 3D printer for the mount (follows).
+- Optional: a 3D printer for the [door mount](mount/README.md) and two tesa Powerstrips Large.
 
 ## Setting it up
 
@@ -56,15 +56,16 @@ Each README goes through every step, from a Kindle in factory state and an empty
 | [`server/`](server/README.md) | ASP.NET Core 10, SkiaSharp, SQLite; [API](server/API.md); deployment (systemd, nginx) |
 | [`kindle/`](kindle/README.md) | client for the Kindle (`sh` and `awk`), the start scriptlet, diagnostic scriptlets |
 | `docs/` | pictures for the documentation |
-| `mount/` | 3D-printed mount for a door, OpenSCAD (follows) |
+| [`mount/`](mount/README.md) | 3D-printed mount for a door, OpenSCAD |
 
 ## Status
 
 Working: server, web page, Kindle client with sleep, wake-up by the power button, taps and the exit gesture.
 
+Designed, not yet printed: the [door mount](mount/README.md).
+
 Planned:
 
-- a mount for the door, to slide the Kindle in from the side, held by removable adhesive strips (OpenSCAD),
 - information and switches from Home Assistant through a small agent in the home network.
 
 ## Credits
