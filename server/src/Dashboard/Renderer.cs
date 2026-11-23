@@ -13,10 +13,10 @@ public sealed record Zone(string Id, int X, int Y, int Width, int Height);
 public sealed record NoteLine(long Id, string Text, bool Done);
 
 /// <summary>Everything the picture shows. Two equal models give the same picture (apart from the time of drawing).</summary>
-/// <param name="Hour">Local hour, for the hours of the rain chart that are over</param>
+/// <param name="Hour">Start of the current hour, where the rain chart begins</param>
 public sealed record ScreenModel(
    DateOnly Date,
-   int Hour,
+   DateTimeOffset Hour,
    string PlaceName,
    WeatherData? Weather,
    List<NoteLine> Notes,
@@ -57,14 +57,13 @@ public sealed class Renderer {
    private static readonly float[] s_noteSizes = [104, 92, 80, 68, 60];
    private const int MaxLinesPerNote = 3;
    private const float LineSpacing = 1.2f;
-   /// <summary>Rain chart: one bar per hour from FirstHour to midnight</summary>
-   private const int FirstHour = 6;
+   /// <summary>Rain chart: one bar per hour, starting with the current one</summary>
+   private const int ChartHours = 24;
 
    private static readonly CultureInfo s_german = CultureInfo.GetCultureInfo("de-DE");
    private static readonly SKColor s_black = SKColors.Black;
    private static readonly SKColor s_grey = new(0x77, 0x77, 0x77);
    private static readonly SKColor s_light = new(0xCC, 0xCC, 0xCC);
-   private static readonly SKColor s_shade = new(0xEE, 0xEE, 0xEE);
 
    private readonly Orientation m_orientation;
    private readonly SKTypeface m_regular;
@@ -88,7 +87,7 @@ public sealed class Renderer {
 
       DrawNotes(canvas, model.Notes, zones);
       Line(canvas, Divider, Margin, Divider, Bottom, 2, s_light);
-      DrawSide(canvas, model, localNow);
+      DrawSide(canvas, model, localNow, zone);
       zones.Add(Zone("refresh", Divider, 0, Width - Divider, Height));
 
       using var landscape = surface.Snapshot();
@@ -180,7 +179,7 @@ public sealed class Renderer {
 
    // --- Day and weather ---
 
-   private void DrawSide(SKCanvas canvas, ScreenModel model, DateTime localNow) {
+   private void DrawSide(SKCanvas canvas, ScreenModel model, DateTime localNow, TimeZoneInfo zone) {
       const float x = SideX;
       const float right = SideX + SideWidth;
       var date = model.Date.ToDateTime(TimeOnly.MinValue);
@@ -202,7 +201,7 @@ public sealed class Renderer {
             var rain = today.Precipitation > 0 ? $"{today.Precipitation.ToString("0.#", s_german)} mm" : "trocken";
             Text(canvas, rain, right, line, 30, m_regular, s_black, SKTextAlign.Right);
          }
-         DrawRain(canvas, weather.Hours, model.Hour, x, line + 50, right);
+         DrawRain(canvas, weather.Hours, model.Hour, zone, x, line + 50, right);
       }
 
       // Foot of the column: battery, time of the picture, source of the weather
@@ -212,10 +211,13 @@ public sealed class Renderer {
       Text(canvas, Fit($"Wetter: DWD · {model.PlaceName}", SideWidth, 22, m_regular), x, Bottom - 4, 22, m_regular, s_grey);
    }
 
-   /// <summary>Small bar chart of the probability of rain, one bar per hour from FirstHour to midnight.</summary>
-   private void DrawRain(SKCanvas canvas, List<WeatherHour> hours, int nowHour, float x, float top, float right) {
+   /// <summary>Small bar chart of the probability of rain, one bar per hour for the next 24 hours.</summary>
+   private void DrawRain(SKCanvas canvas, List<WeatherHour> hours, DateTimeOffset start, TimeZoneInfo zone, float x, float top, float right) {
       const float chartHeight = 150;
-      var coming = hours.Where(hour => hour.Hour >= FirstHour && hour.Hour >= nowHour && hour.PrecipitationProbability is not null).ToList();
+      var coming = hours
+         .Select(hour => (Slot: (int)Math.Round((hour.Time - start).TotalHours), hour.PrecipitationProbability))
+         .Where(hour => hour.Slot is >= 0 and < ChartHours && hour.PrecipitationProbability is not null)
+         .ToList();
       var chartTop = Heading(canvas, "Regen", x, top) + 14;
       if (coming.Count > 0) {
          var highest = coming.Max(hour => hour.PrecipitationProbability!.Value);
@@ -223,26 +225,28 @@ public sealed class Renderer {
       }
 
       var baseline = chartTop + chartHeight;
-      var slot = (right - x) / (24 - FirstHour);
-      // The hours that are over are shaded
-      if (nowHour > FirstHour) {
-         using var shade = Fill(s_shade);
-         canvas.DrawRect(SKRect.Create(x, chartTop, (Math.Min(nowHour, 24) - FirstHour) * slot, chartHeight), shade);
-      }
-      // Grid: 100 % and 50 % light, the base line dark
+      var slot = (right - x) / ChartHours;
+      // Grid: 100 % and 50 % light, midnight as a line from top to bottom, the base line dark
       Line(canvas, x, chartTop, right, chartTop, 1, s_light);
       Line(canvas, x, chartTop + chartHeight / 2, right, chartTop + chartHeight / 2, 1, s_light);
+      for (var i = 1; i < ChartHours; i++) {
+         if (TimeZoneInfo.ConvertTime(start.AddHours(i), zone).Hour == 0)
+            Line(canvas, x + i * slot, chartTop, x + i * slot, baseline, 2, s_light);
+      }
       using (var bar = Fill(s_black)) {
-         foreach (var hour in coming) {
-            var height = Math.Max(3, chartHeight * Math.Clamp(hour.PrecipitationProbability!.Value, 0, 100) / 100f);
-            var left = x + (hour.Hour - FirstHour) * slot + slot * 0.15f;
-            canvas.DrawRoundRect(SKRect.Create(left, baseline - height, slot * 0.7f, height), 2, 2, bar);
+         foreach (var (index, probability) in coming) {
+            var height = Math.Max(3, chartHeight * Math.Clamp(probability!.Value, 0, 100) / 100f);
+            canvas.DrawRoundRect(SKRect.Create(x + index * slot + slot * 0.15f, baseline - height, slot * 0.7f, height), 2, 2, bar);
          }
       }
       Line(canvas, x, baseline, right, baseline, 2, s_black);
-      foreach (var hour in new[] { 6, 12, 18, 24 }) {
-         var align = hour == FirstHour ? SKTextAlign.Left : hour == 24 ? SKTextAlign.Right : SKTextAlign.Center;
-         Text(canvas, $"{hour}", x + (hour - FirstHour) * slot, baseline + 30, 22, m_regular, s_grey, align);
+
+      // "jetzt" at the start, then the full hours divisible by six, as far as they keep clear of it and of the end
+      Text(canvas, "jetzt", x, baseline + 30, 22, m_semiBold, s_grey);
+      for (var i = 5; i < ChartHours; i++) {
+         var local = TimeZoneInfo.ConvertTime(start.AddHours(i), zone).Hour;
+         if (local % 6 == 0)
+            Text(canvas, $"{local}", x + i * slot, baseline + 30, 22, m_regular, s_grey, SKTextAlign.Center);
       }
       if (coming.Count == 0)
          Text(canvas, "keine Angabe", (x + right) / 2, chartTop + chartHeight / 2 - 10, 26, m_regular, s_grey, SKTextAlign.Center);

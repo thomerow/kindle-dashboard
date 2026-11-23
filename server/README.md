@@ -29,7 +29,8 @@ The interface is described in [`API.md`](API.md).
 
 - **Data:** the notes, settings and a log of the Kindle's battery, in an SQLite database. A checked-off note is
   deleted after 12 hours.
-- **Weather:** current weather and today's hours (temperature, probability of rain) from [Bright Sky](https://brightsky.dev)
+- **Weather:** current weather, today's lowest and highest temperature and the probability of rain for the next 24
+  hours from [Bright Sky](https://brightsky.dev)
   (data of the Deutscher Wetterdienst, so it covers Germany and the regions around it), fetched every 30 minutes.
 - **Picture:** drawn with [SkiaSharp](https://github.com/mono/SkiaSharp) in landscape (1448 × 1072), with
   anti-aliasing and reduced to the 16 grey levels of the e-ink display. For the Kindle it is turned into the portrait

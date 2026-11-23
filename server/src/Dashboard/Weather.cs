@@ -10,13 +10,15 @@ namespace Dashboard;
 public sealed record WeatherNow(double? Temperature, string? Icon, double? WindKmh, int? Humidity);
 /// <summary>Today as a whole. The probability of rain is the highest of the hours that have one.</summary>
 public sealed record WeatherToday(double? Min, double? Max, double Precipitation, int? PrecipitationProbability);
-/// <param name="Hour">Local hour of the day, 0 to 23</param>
+/// <param name="Time">Start of the hour</param>
 /// <param name="PrecipitationProbability">Only for hours of the forecast, null for hours that are already over</param>
-public sealed record WeatherHour(int Hour, int? PrecipitationProbability);
+public sealed record WeatherHour(DateTimeOffset Time, int? PrecipitationProbability);
 public sealed record WeatherData(DateTimeOffset FetchedAt, WeatherNow Now, WeatherToday? Today, List<WeatherHour> Hours);
 
 /// <summary>Fetches the weather every 30 minutes and whenever the place changes.</summary>
 public sealed class WeatherService(IHttpClientFactory httpClients, Store store, ILogger<WeatherService> logger) : BackgroundService {
+   /// <summary>Hours from the current one on. A day for the chart and some more, because the data is fetched only every 30 minutes.</summary>
+   public const int HoursAhead = 30;
    public const string BaseUrl = "https://api.brightsky.dev/";
    private static readonly TimeSpan s_interval = TimeSpan.FromMinutes(30);
    private static readonly TimeSpan s_retry = TimeSpan.FromMinutes(5);
@@ -68,17 +70,18 @@ public sealed class WeatherService(IHttpClientFactory httpClients, Store store, 
          Number(now, "wind_speed_10") ?? Number(now, "wind_speed_30") ?? Number(now, "wind_speed_60"),
          (int?)Number(now, "relative_humidity"));
 
-      // Only today: the hours from midnight to midnight, local time
-      var range = $"date={today:yyyy-MM-dd}&last_date={today.AddDays(1):yyyy-MM-dd}&tz={Uri.EscapeDataString(settings.TimeZone)}";
+      // Today from midnight on and the hours ahead, which reach into tomorrow
+      var range = $"date={today:yyyy-MM-dd}&last_date={today.AddDays(3):yyyy-MM-dd}&tz={Uri.EscapeDataString(settings.TimeZone)}";
       using var forecast = JsonDocument.Parse(await client.GetStringAsync($"weather?{place}&{range}", cancellation));
-      var hours = new List<(DateTime Local, double? Temperature, double? Precipitation, int? Probability)>();
+      var all = new List<(DateTimeOffset Time, double? Temperature, double? Precipitation, int? Probability)>();
       foreach (var hour in forecast.RootElement.GetProperty("weather").EnumerateArray()) {
-         var time = DateTimeOffset.Parse(hour.GetProperty("timestamp").GetString()!, CultureInfo.InvariantCulture);
-         var local = TimeZoneInfo.ConvertTime(time, zone).DateTime;
-         if (DateOnly.FromDateTime(local) != today)
-            continue;
-         hours.Add((local, Number(hour, "temperature"), Number(hour, "precipitation"), (int?)Number(hour, "precipitation_probability")));
+         all.Add((
+            DateTimeOffset.Parse(hour.GetProperty("timestamp").GetString()!, CultureInfo.InvariantCulture),
+            Number(hour, "temperature"),
+            Number(hour, "precipitation"),
+            (int?)Number(hour, "precipitation_probability")));
       }
+      var hours = all.Where(hour => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(hour.Time, zone).DateTime) == today).ToList();
 
       WeatherToday? summary = null;
       if (hours.Count > 0) {
@@ -89,14 +92,14 @@ public sealed class WeatherService(IHttpClientFactory httpClients, Store store, 
             hours.Sum(hour => hour.Precipitation ?? 0),
             hours.Max(hour => hour.Probability));
       }
-      // One value per hour; the hour that is there twice when the clocks go back keeps the higher one
-      var byHour = hours
-         .GroupBy(hour => hour.Local.Hour)
-         .OrderBy(group => group.Key)
-         .Select(group => new WeatherHour(group.Key, group.Max(hour => hour.Probability)))
+      var nowUtc = DateTimeOffset.UtcNow;
+      var currentHour = new DateTimeOffset(nowUtc.Year, nowUtc.Month, nowUtc.Day, nowUtc.Hour, 0, 0, TimeSpan.Zero);
+      var ahead = all
+         .Where(hour => hour.Time >= currentHour && hour.Time < currentHour.AddHours(HoursAhead))
+         .Select(hour => new WeatherHour(hour.Time, hour.Probability))
          .ToList();
 
-      return new WeatherData(DateTimeOffset.UtcNow, weatherNow, summary, byHour);
+      return new WeatherData(nowUtc, weatherNow, summary, ahead);
    }
 
    private static double? Number(JsonElement element, string name) =>

@@ -158,6 +158,9 @@ public sealed class Screen : IHostedService, IDisposable {
       var device = m_device;
       // The battery only in steps of 5 %, so that not every percent costs a new picture
       var battery = device.Battery is { } level ? (int)Math.Round(level / 5.0) * 5 : (int?)null;
-      return new ScreenModel(DateOnly.FromDateTime(now), now.Hour, settings.PlaceName, m_weather.Current, notes, battery, device.Charging);
+      // The rain chart starts with the current hour, so the picture changes once an hour
+      var utc = DateTimeOffset.UtcNow;
+      var hour = new DateTimeOffset(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, TimeSpan.Zero);
+      return new ScreenModel(DateOnly.FromDateTime(now), hour, settings.PlaceName, m_weather.Current, notes, battery, device.Charging);
    }
 }
