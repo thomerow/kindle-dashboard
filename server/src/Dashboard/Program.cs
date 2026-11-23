@@ -11,7 +11,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 
-// The server keeps shopping list, notes and reminders, draws the picture for the Kindle and
+// The server keeps the notes (a list to check off, like Post-its on the door), draws the picture for the Kindle and
 // tells it when to wake up next. The web page (phone) changes the data, the Kindle fetches the picture.
 
 const int maxWaitSeconds = 50; // Has to stay below proxy_read_timeout of nginx (60 s)
@@ -140,26 +140,25 @@ var web = app.MapGroup("/api").RequireAuthorization().RequireRateLimiting("web")
 web.MapGet("/items", (Store store) => store.GetItems());
 
 web.MapPost("/items", (NewItem request, Store store) => {
-   var error = ValidateItem(request.Kind, request.Text, request.Due);
+   var error = ValidateText(request.Text);
    if (error is not null)
       return Results.BadRequest(new { error });
-   return Results.Ok(store.AddItem(request.Kind!, request.Text!.Trim(), NullIfEmpty(request.Due)));
+   return Results.Ok(store.AddItem(request.Text!.Trim()));
 });
 
 web.MapPatch("/items/{id:long}", (long id, ItemPatch patch, Store store) => {
    var item = store.GetItem(id);
    if (item is null)
       return Results.NotFound();
-   var error = ValidateItem(item.Kind, patch.Text ?? item.Text, string.IsNullOrEmpty(patch.Due) ? null : patch.Due);
+   var error = ValidateText(patch.Text ?? item.Text);
    if (error is not null)
       return Results.BadRequest(new { error });
-   return Results.Ok(store.UpdateItem(id, patch.Text?.Trim(), NullIfEmpty(patch.Due), patch.Due == "", patch.Done));
+   return Results.Ok(store.UpdateItem(id, patch.Text?.Trim(), patch.Done));
 });
 
 web.MapDelete("/items/{id:long}", (long id, Store store) => store.DeleteItem(id) ? Results.NoContent() : Results.NotFound());
 
-web.MapPost("/items/delete-done", (string kind, Store store) =>
-   Store.Kinds.Contains(kind) ? Results.Ok(new { deleted = store.DeleteDone(kind) }) : Results.BadRequest());
+web.MapPost("/items/delete-done", (Store store) => new { deleted = store.DeleteDone() });
 
 web.MapGet("/settings", (Store store) => store.GetSettings());
 
@@ -185,7 +184,7 @@ web.MapGet("/state", (Screen screen, WeatherService weather, Store store) => {
       device,
       weather = weather.Current is null ? null : new { weather.Current.FetchedAt },
       settingsSaved = store.HasSettings,
-      nextWakeSeconds = Schedule.NextWakeSeconds(store.GetSettings(), store.GetItems(), DateTimeOffset.UtcNow)
+      nextWakeSeconds = Schedule.NextWakeSeconds(store.GetSettings(), DateTimeOffset.UtcNow)
    };
 });
 
@@ -225,7 +224,7 @@ device.MapGet("/frame", async (string? rev, int? battery, int? charging, int? wa
          using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, stopping);
          await screen.WaitForChangeAsync(rev, TimeSpan.FromSeconds(seconds), cancellation.Token);
       }
-      var nextWake = Schedule.NextWakeSeconds(store.GetSettings(), store.GetItems(), DateTimeOffset.UtcNow);
+      var nextWake = Schedule.NextWakeSeconds(store.GetSettings(), DateTimeOffset.UtcNow);
       screen.DeviceSeen(null, isCharging, rev, nextWake);
       return Results.Text(FrameText(screen.Frame, nextWake), "text/plain; charset=utf-8");
    } finally {
@@ -242,7 +241,7 @@ device.MapGet("/image", (Screen screen, HttpContext context) => {
 device.MapPost("/tap", (string zone, Screen screen, Store store) => {
    if (!screen.Tap(zone))
       return Results.NotFound();
-   var nextWake = Schedule.NextWakeSeconds(store.GetSettings(), store.GetItems(), DateTimeOffset.UtcNow);
+   var nextWake = Schedule.NextWakeSeconds(store.GetSettings(), DateTimeOffset.UtcNow);
    return Results.Text(FrameText(screen.Frame, nextWake), "text/plain; charset=utf-8");
 });
 
@@ -267,19 +266,13 @@ static string FrameText(Frame frame, int nextWakeSeconds) {
    return text.ToString();
 }
 
-static string? ValidateItem(string? kind, string? text, string? due) {
-   if (kind is null || !Store.Kinds.Contains(kind))
-      return "kind must be shopping, note or reminder";
+static string? ValidateText(string? text) {
    if (string.IsNullOrWhiteSpace(text))
       return "text is empty";
    if (text.Length > Store.MaxTextLength)
       return $"text is longer than {Store.MaxTextLength} characters";
-   if (!string.IsNullOrEmpty(due) && (kind != "reminder" || !Schedule.TryParseDue(due, out _, out _)))
-      return "due needs the format yyyy-MM-dd or yyyy-MM-ddTHH:mm and is only allowed for reminders";
    return null;
 }
-
-static string? NullIfEmpty(string? text) => string.IsNullOrEmpty(text) ? null : text;
 
 static string Shorten(string text, int length) => text.Length <= length ? text : text[..length];
 
@@ -309,9 +302,9 @@ static RateLimitPartition<string> PerClient(HttpContext context, int perMinute) 
       _ => new FixedWindowRateLimiterOptions { PermitLimit = perMinute, Window = TimeSpan.FromMinutes(1) });
 
 sealed record LoginRequest(string? Password);
-sealed record NewItem(string? Kind, string? Text, string? Due);
-/// <summary>Null leaves a field as it is. Due "" removes the due date.</summary>
-sealed record ItemPatch(string? Text, string? Due, bool? Done);
+sealed record NewItem(string? Text);
+/// <summary>Null leaves a field as it is.</summary>
+sealed record ItemPatch(string? Text, bool? Done);
 
 /// <summary>Caps the number of requests that are held open at the same time.</summary>
 sealed class ConnectionLimit(int max) {

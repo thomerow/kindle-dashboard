@@ -1,4 +1,4 @@
-// Kindle dashboard: local time, due dates of reminders and the wake-up times of the Kindle.
+// Kindle dashboard: local time and the wake-up times of the Kindle.
 // Author: Thorsten Kummerow <thorsten.kummerow (at) gmail (dot) com>
 
 using System.Globalization;
@@ -20,30 +20,14 @@ public static class Schedule {
    public static DateTime LocalNow(Settings settings) =>
       TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, GetTimeZone(settings.TimeZone)).DateTime;
 
-   /// <summary>Checks the format of a due date: "yyyy-MM-dd" or "yyyy-MM-ddTHH:mm".</summary>
-   public static bool TryParseDue(string? due, out DateOnly date, out TimeOnly? time) {
-      time = null;
-      date = default;
-      if (due is null)
-         return false;
-      if (DateOnly.TryParseExact(due, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
-         return true;
-      if (DateTime.TryParseExact(due, "yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dateTime)) {
-         date = DateOnly.FromDateTime(dateTime);
-         time = TimeOnly.FromDateTime(dateTime);
-         return true;
-      }
-      return false;
-   }
-
    public static bool TryParseClock(string? text, out TimeOnly time) =>
       TimeOnly.TryParseExact(text, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out time);
 
    /// <summary>
    /// Seconds until the Kindle should wake up next: the next slot of the interval (counted from midnight),
-   /// moved to the end of the quiet hours if it falls into them. A reminder with a time wakes it earlier.
+   /// moved to the end of the quiet hours if it falls into them.
    /// </summary>
-   public static int NextWakeSeconds(Settings settings, IEnumerable<Item> items, DateTimeOffset nowUtc) {
+   public static int NextWakeSeconds(Settings settings, DateTimeOffset nowUtc) {
       var zone = GetTimeZone(settings.TimeZone);
       var now = TimeZoneInfo.ConvertTime(nowUtc, zone).DateTime;
       var earliest = now.AddSeconds(MinSleepSeconds);
@@ -56,14 +40,6 @@ public static class Schedule {
          next = next.Date.Add(quietTo.ToTimeSpan());
          if (next < earliest)
             next = next.AddDays(1);
-      }
-
-      foreach (var item in items) {
-         if (item.Kind == "reminder" && item.Done is null && TryParseDue(item.Due, out var date, out var time) && time is not null) {
-            var due = date.ToDateTime(time.Value);
-            if (due >= earliest && due < next)
-               next = due;
-         }
       }
 
       var nextUtc = ToUtc(next, zone);

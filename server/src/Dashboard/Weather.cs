@@ -8,22 +8,18 @@ namespace Dashboard;
 
 /// <param name="Icon">Bright Sky icon name: clear-day, clear-night, partly-cloudy-day, partly-cloudy-night, cloudy, fog, wind, rain, sleet, snow, hail, thunderstorm</param>
 public sealed record WeatherNow(double? Temperature, string? Icon, double? WindKmh, int? Humidity);
-public sealed record WeatherHour(DateTimeOffset Time, double? Temperature, string? Icon, int? PrecipitationProbability);
-public sealed record WeatherDay(DateOnly Date, double? Min, double? Max, string? Icon, double Precipitation, int? PrecipitationProbability);
-public sealed record WeatherData(DateTimeOffset FetchedAt, WeatherNow Now, List<WeatherHour> Hours, List<WeatherDay> Days);
+/// <summary>Today as a whole. The probability of rain is the highest of the hours that have one.</summary>
+public sealed record WeatherToday(double? Min, double? Max, double Precipitation, int? PrecipitationProbability);
+/// <param name="Hour">Local hour of the day, 0 to 23</param>
+/// <param name="PrecipitationProbability">Only for hours of the forecast, null for hours that are already over</param>
+public sealed record WeatherHour(int Hour, int? PrecipitationProbability);
+public sealed record WeatherData(DateTimeOffset FetchedAt, WeatherNow Now, WeatherToday? Today, List<WeatherHour> Hours);
 
 /// <summary>Fetches the weather every 30 minutes and whenever the place changes.</summary>
 public sealed class WeatherService(IHttpClientFactory httpClients, Store store, ILogger<WeatherService> logger) : BackgroundService {
    public const string BaseUrl = "https://api.brightsky.dev/";
    private static readonly TimeSpan s_interval = TimeSpan.FromMinutes(30);
    private static readonly TimeSpan s_retry = TimeSpan.FromMinutes(5);
-   /// <summary>Today and the next five days. The DWD forecast reaches about ten days, but gets vague towards the end.</summary>
-   public const int ForecastDays = 6;
-
-   // Order of importance when a day has several kinds of weather
-   private static readonly string[] s_severity = [
-      "thunderstorm", "hail", "snow", "sleet", "rain", "fog", "wind", "cloudy", "partly-cloudy-day", "clear-day"
-   ];
 
    private readonly SemaphoreSlim m_wake = new(0);
    private (double, double) m_place;
@@ -72,57 +68,35 @@ public sealed class WeatherService(IHttpClientFactory httpClients, Store store, 
          Number(now, "wind_speed_10") ?? Number(now, "wind_speed_30") ?? Number(now, "wind_speed_60"),
          (int?)Number(now, "relative_humidity"));
 
-      var range = $"date={today:yyyy-MM-dd}&last_date={today.AddDays(ForecastDays):yyyy-MM-dd}&tz={Uri.EscapeDataString(settings.TimeZone)}";
+      // Only today: the hours from midnight to midnight, local time
+      var range = $"date={today:yyyy-MM-dd}&last_date={today.AddDays(1):yyyy-MM-dd}&tz={Uri.EscapeDataString(settings.TimeZone)}";
       using var forecast = JsonDocument.Parse(await client.GetStringAsync($"weather?{place}&{range}", cancellation));
-      var hours = new List<(DateTimeOffset Time, double? Temperature, string? Icon, double? Precipitation, int? Probability)>();
+      var hours = new List<(DateTime Local, double? Temperature, double? Precipitation, int? Probability)>();
       foreach (var hour in forecast.RootElement.GetProperty("weather").EnumerateArray()) {
-         hours.Add((
-            DateTimeOffset.Parse(hour.GetProperty("timestamp").GetString()!, CultureInfo.InvariantCulture),
-            Number(hour, "temperature"),
-            Text(hour, "icon"),
-            Number(hour, "precipitation"),
-            (int?)Number(hour, "precipitation_probability")));
+         var time = DateTimeOffset.Parse(hour.GetProperty("timestamp").GetString()!, CultureInfo.InvariantCulture);
+         var local = TimeZoneInfo.ConvertTime(time, zone).DateTime;
+         if (DateOnly.FromDateTime(local) != today)
+            continue;
+         hours.Add((local, Number(hour, "temperature"), Number(hour, "precipitation"), (int?)Number(hour, "precipitation_probability")));
       }
 
-      var nowUtc = DateTimeOffset.UtcNow;
-      var nextHours = hours
-         .Where(hour => hour.Time > nowUtc)
-         .Where((_, index) => index % 3 == 0)
-         .Take(6)
-         .Select(hour => new WeatherHour(hour.Time, hour.Temperature, hour.Icon, hour.Probability))
-         .ToList();
-
-      var days = new List<WeatherDay>();
-      for (var day = today; day < today.AddDays(ForecastDays); day = day.AddDays(1)) {
-         var ofDay = hours.Where(hour => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(hour.Time, zone).DateTime) == day).ToList();
-         if (ofDay.Count == 0)
-            continue;
-         var temperatures = ofDay.Where(hour => hour.Temperature is not null).Select(hour => hour.Temperature!.Value).ToList();
-         var daytime = ofDay.Where(hour => TimeZoneInfo.ConvertTime(hour.Time, zone).Hour is >= 8 and < 20).ToList();
-         days.Add(new WeatherDay(
-            day,
+      WeatherToday? summary = null;
+      if (hours.Count > 0) {
+         var temperatures = hours.Where(hour => hour.Temperature is not null).Select(hour => hour.Temperature!.Value).ToList();
+         summary = new WeatherToday(
             temperatures.Count > 0 ? temperatures.Min() : null,
             temperatures.Count > 0 ? temperatures.Max() : null,
-            IconOfDay(daytime.Count > 0 ? daytime.Select(hour => hour.Icon) : ofDay.Select(hour => hour.Icon)),
-            ofDay.Sum(hour => hour.Precipitation ?? 0),
-            ofDay.Max(hour => hour.Probability)));
+            hours.Sum(hour => hour.Precipitation ?? 0),
+            hours.Max(hour => hour.Probability));
       }
+      // One value per hour; the hour that is there twice when the clocks go back keeps the higher one
+      var byHour = hours
+         .GroupBy(hour => hour.Local.Hour)
+         .OrderBy(group => group.Key)
+         .Select(group => new WeatherHour(group.Key, group.Max(hour => hour.Probability)))
+         .ToList();
 
-      return new WeatherData(nowUtc, weatherNow, nextHours, days);
-   }
-
-   /// <summary>The most important kind of weather that lasts at least two hours, otherwise the most frequent one.</summary>
-   private static string? IconOfDay(IEnumerable<string?> icons) {
-      var counts = icons
-         .Where(icon => icon is not null)
-         .Select(icon => icon!.Replace("-night", "-day"))
-         .GroupBy(icon => icon)
-         .ToDictionary(group => group.Key, group => group.Count());
-      foreach (var icon in s_severity) {
-         if (counts.GetValueOrDefault(icon) >= 2)
-            return icon;
-      }
-      return counts.OrderByDescending(pair => pair.Value).Select(pair => pair.Key).FirstOrDefault();
+      return new WeatherData(DateTimeOffset.UtcNow, weatherNow, summary, byHour);
    }
 
    private static double? Number(JsonElement element, string name) =>

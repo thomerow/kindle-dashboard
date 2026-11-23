@@ -21,8 +21,7 @@ public sealed record DeviceState(DateTimeOffset? LastSeen, int? Battery, bool Ch
 /// date, battery). Waiting requests of the Kindle are released as soon as there is a new picture.
 /// </summary>
 public sealed class Screen : IHostedService, IDisposable {
-   public const int MaxReminders = 20;
-   /// <summary>Checked-off shopping items disappear after this time.</summary>
+   /// <summary>Checked-off notes disappear after this time.</summary>
    private static readonly TimeSpan s_keepDone = TimeSpan.FromHours(12);
    private static readonly JsonSerializerOptions s_json = new(JsonSerializerDefaults.Web);
 
@@ -65,10 +64,10 @@ public sealed class Screen : IHostedService, IDisposable {
    }
 
    public Task StartAsync(CancellationToken cancellationToken) {
-      // Once a minute: new day, reminders that become overdue, cleaning up checked-off items
+      // Once a minute: new day, cleaning up checked-off notes
       m_timer = new Timer(_ => {
          try {
-            m_store.DeleteDone("shopping", DateTimeOffset.UtcNow - s_keepDone);
+            m_store.DeleteDone(DateTimeOffset.UtcNow - s_keepDone);
             Update();
          } catch (Exception exception) {
             m_logger.LogError(exception, "Updating the picture failed");
@@ -115,26 +114,18 @@ public sealed class Screen : IHostedService, IDisposable {
       }
    }
 
-   /// <summary>Carries out the action of a tapped zone. Unknown zones are ignored.</summary>
+   /// <summary>Carries out the action of a tapped zone: "item:12" checks off note 12 (or back). Unknown zones are ignored.</summary>
    public bool Tap(string zone) {
       var parts = zone.Split(':');
       if (parts is ["refresh"])
          return true;
-      if (parts.Length != 2 || !long.TryParse(parts[1], CultureInfo.InvariantCulture, out var id))
+      if (parts is not ["item", var number] || !long.TryParse(number, CultureInfo.InvariantCulture, out var id))
          return false;
       var item = m_store.GetItem(id);
-      if (item is null || item.Kind != parts[0])
+      if (item is null)
          return false;
-      switch (item.Kind) {
-         case "shopping":
-            m_store.UpdateItem(id, null, null, false, item.Done is null);
-            return true;
-         case "reminder":
-            m_store.UpdateItem(id, null, null, false, true);
-            return true;
-         default:
-            return false;
-      }
+      m_store.UpdateItem(id, null, item.Done is null);
+      return true;
    }
 
    /// <summary>Draws the picture again if its content changed.</summary>
@@ -157,53 +148,16 @@ public sealed class Screen : IHostedService, IDisposable {
    }
 
    private ScreenModel BuildModel(Settings settings, DateTime now) {
-      var today = DateOnly.FromDateTime(now);
-      var items = m_store.GetItems();
-
-      var reminders = items
-         .Where(item => item.Kind == "reminder" && item.Done is null)
-         .Select(item => {
-            var hasDue = Schedule.TryParseDue(item.Due, out var date, out var time);
-            var dueAt = hasDue ? date.ToDateTime(time ?? TimeOnly.MaxValue) : DateTime.MaxValue;
-            return (Item: item, HasDue: hasDue, Date: date, Time: time, DueAt: dueAt);
-         })
-         .Where(entry => !entry.HasDue || entry.Date <= today.AddDays(14))
-         .OrderBy(entry => entry.DueAt)
-         .Take(MaxReminders)
-         .Select(entry => new ReminderLine(entry.Item.Id, entry.Item.Text,
-            entry.HasDue ? DueLabel(entry.Date, entry.Time, today) : null,
-            entry.HasDue && entry.DueAt <= now))
-         .ToList();
-
-      var shopping = items
-         .Where(item => item.Kind == "shopping")
+      // Open notes in the order they were written, checked-off ones below
+      var notes = m_store.GetItems()
          .OrderBy(item => item.Done is not null)
          .ThenBy(item => item.Id)
-         .Select(item => new ShoppingLine(item.Id, item.Text, item.Done is not null))
-         .ToList();
-
-      var notes = items
-         .Where(item => item.Kind == "note")
-         .OrderByDescending(item => item.Id)
-         .Select(item => item.Text)
+         .Select(item => new NoteLine(item.Id, item.Text, item.Done is not null))
          .ToList();
 
       var device = m_device;
       // The battery only in steps of 5 %, so that not every percent costs a new picture
       var battery = device.Battery is { } level ? (int)Math.Round(level / 5.0) * 5 : (int?)null;
-      return new ScreenModel(today, settings.PlaceName, m_weather.Current, reminders, shopping, notes, battery, device.Charging);
-   }
-
-   private static string DueLabel(DateOnly date, TimeOnly? time, DateOnly today) {
-      var german = CultureInfo.GetCultureInfo("de-DE");
-      var days = date.DayNumber - today.DayNumber;
-      var day = days switch {
-         0 => "heute",
-         1 => "morgen",
-         -1 => "gestern",
-         > 1 and < 7 => date.ToDateTime(TimeOnly.MinValue).ToString("dddd", german),
-         _ => date.ToString("d.M.", german)
-      };
-      return time is null ? day : $"{day} {time:HH:mm}";
+      return new ScreenModel(DateOnly.FromDateTime(now), now.Hour, settings.PlaceName, m_weather.Current, notes, battery, device.Charging);
    }
 }

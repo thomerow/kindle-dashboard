@@ -1,4 +1,4 @@
-// Kindle dashboard: permanent data in SQLite (items, settings, battery log).
+// Kindle dashboard: permanent data in SQLite (notes, settings, battery log).
 // Author: Thorsten Kummerow <thorsten.kummerow (at) gmail (dot) com>
 
 using System.Text.Json;
@@ -6,11 +6,9 @@ using Microsoft.Data.Sqlite;
 
 namespace Dashboard;
 
-/// <summary>An entry of the shopping list, a note or a reminder.</summary>
-/// <param name="Kind">"shopping", "note" or "reminder"</param>
-/// <param name="Due">Reminders only: local date "yyyy-MM-dd" or local date and time "yyyy-MM-ddTHH:mm"</param>
-/// <param name="Done">Time when a shopping item was checked off or a reminder was marked as done</param>
-public sealed record Item(long Id, string Kind, string Text, DateTimeOffset Created, string? Due, DateTimeOffset? Done);
+/// <summary>A note on the list, like a Post-it on the door.</summary>
+/// <param name="Done">Time when it was checked off</param>
+public sealed record Item(long Id, string Text, DateTimeOffset Created, DateTimeOffset? Done);
 
 /// <summary>Settings that can be changed on the web page.</summary>
 public sealed record Settings {
@@ -28,8 +26,12 @@ public sealed record Settings {
 public sealed record BatteryEntry(DateTimeOffset Time, int Level, bool Charging);
 
 public sealed class Store {
-   public static readonly string[] Kinds = ["shopping", "note", "reminder"];
    public const int MaxTextLength = 200;
+   /// <summary>
+   /// Kind of new items. The table still has the columns kind and due of the former dashboard (shopping list, notes,
+   /// reminders); their items show up as notes as well, the due date is ignored.
+   /// </summary>
+   private const string Kind = "todo";
 
    private static readonly JsonSerializerOptions s_json = new(JsonSerializerDefaults.Web);
    private readonly string m_connectionString;
@@ -74,47 +76,43 @@ public sealed class Store {
    public List<Item> GetItems() {
       using var connection = Open();
       using var command = connection.CreateCommand();
-      command.CommandText = "SELECT id, kind, text, created, due, done FROM items ORDER BY id";
+      command.CommandText = "SELECT id, text, created, done FROM items ORDER BY id";
       using var reader = command.ExecuteReader();
       var items = new List<Item>();
       while (reader.Read()) {
          items.Add(new Item(
             reader.GetInt64(0),
             reader.GetString(1),
-            reader.GetString(2),
-            DateTimeOffset.Parse(reader.GetString(3)),
-            reader.IsDBNull(4) ? null : reader.GetString(4),
-            reader.IsDBNull(5) ? null : DateTimeOffset.Parse(reader.GetString(5))));
+            DateTimeOffset.Parse(reader.GetString(2)),
+            reader.IsDBNull(3) ? null : DateTimeOffset.Parse(reader.GetString(3))));
       }
       return items;
    }
 
    public Item? GetItem(long id) => GetItems().FirstOrDefault(item => item.Id == id);
 
-   public Item AddItem(string kind, string text, string? due) {
+   public Item AddItem(string text) {
       var created = DateTimeOffset.UtcNow;
       long id;
       using (var connection = Open()) {
          using var command = connection.CreateCommand();
-         command.CommandText = "INSERT INTO items (kind, text, created, due) VALUES ($kind, $text, $created, $due) RETURNING id";
-         command.Parameters.AddWithValue("$kind", kind);
+         command.CommandText = "INSERT INTO items (kind, text, created) VALUES ($kind, $text, $created) RETURNING id";
+         command.Parameters.AddWithValue("$kind", Kind);
          command.Parameters.AddWithValue("$text", text);
          command.Parameters.AddWithValue("$created", created.ToString("O"));
-         command.Parameters.AddWithValue("$due", (object?)due ?? DBNull.Value);
          id = (long)command.ExecuteScalar()!;
       }
       OnChanged();
-      return new Item(id, kind, text, created, due, null);
+      return new Item(id, text, created, null);
    }
 
-   /// <summary>Changes text, due date and done state. Null leaves a value as it is; clearDue removes the due date.</summary>
-   public Item? UpdateItem(long id, string? text, string? due, bool clearDue, bool? done) {
+   /// <summary>Changes text and done state. Null leaves a value as it is.</summary>
+   public Item? UpdateItem(long id, string? text, bool? done) {
       var item = GetItem(id);
       if (item is null)
          return null;
       var updated = item with {
          Text = text ?? item.Text,
-         Due = clearDue ? null : due ?? item.Due,
          Done = done switch {
             null => item.Done,
             true => item.Done ?? DateTimeOffset.UtcNow,
@@ -125,10 +123,9 @@ public sealed class Store {
          return item;
       using (var connection = Open()) {
          using var command = connection.CreateCommand();
-         command.CommandText = "UPDATE items SET text = $text, due = $due, done = $done WHERE id = $id";
+         command.CommandText = "UPDATE items SET text = $text, done = $done WHERE id = $id";
          command.Parameters.AddWithValue("$id", id);
          command.Parameters.AddWithValue("$text", updated.Text);
-         command.Parameters.AddWithValue("$due", (object?)updated.Due ?? DBNull.Value);
          command.Parameters.AddWithValue("$done", (object?)updated.Done?.ToString("O") ?? DBNull.Value);
          command.ExecuteNonQuery();
       }
@@ -149,13 +146,12 @@ public sealed class Store {
       return count > 0;
    }
 
-   /// <summary>Deletes done items of a kind, optionally only those done before a point in time.</summary>
-   public int DeleteDone(string kind, DateTimeOffset? before = null) {
+   /// <summary>Deletes checked-off items, optionally only those checked off before a point in time.</summary>
+   public int DeleteDone(DateTimeOffset? before = null) {
       int count;
       using (var connection = Open()) {
          using var command = connection.CreateCommand();
-         command.CommandText = "DELETE FROM items WHERE kind = $kind AND done IS NOT NULL AND ($before IS NULL OR done < $before)";
-         command.Parameters.AddWithValue("$kind", kind);
+         command.CommandText = "DELETE FROM items WHERE done IS NOT NULL AND ($before IS NULL OR done < $before)";
          command.Parameters.AddWithValue("$before", (object?)before?.ToString("O") ?? DBNull.Value);
          count = command.ExecuteNonQuery();
       }

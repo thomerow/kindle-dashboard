@@ -7,20 +7,19 @@ using SkiaSharp;
 namespace Dashboard;
 
 /// <summary>Area of the picture that triggers an action when it is tapped on the Kindle.</summary>
-/// <param name="Id">"shopping:12" checks off item 12 (or back), "reminder:5" marks reminder 5 as done, "refresh" only redraws</param>
+/// <param name="Id">"item:12" checks off note 12 (or back), "refresh" only redraws</param>
 public sealed record Zone(string Id, int X, int Y, int Width, int Height);
 
-public sealed record ReminderLine(long Id, string Text, string? DueLabel, bool Overdue);
-public sealed record ShoppingLine(long Id, string Text, bool Done);
+public sealed record NoteLine(long Id, string Text, bool Done);
 
 /// <summary>Everything the picture shows. Two equal models give the same picture (apart from the time of drawing).</summary>
+/// <param name="Hour">Local hour, for the hours of the rain chart that are over</param>
 public sealed record ScreenModel(
    DateOnly Date,
+   int Hour,
    string PlaceName,
    WeatherData? Weather,
-   List<ReminderLine> Reminders,
-   List<ShoppingLine> Shopping,
-   List<string> Notes,
+   List<NoteLine> Notes,
    int? Battery,
    bool Charging);
 
@@ -38,28 +37,34 @@ public enum Orientation {
    ButtonLeft
 }
 
-/// <summary>Draws a <see cref="ScreenModel"/> for the Kindle Paperwhite 3 in landscape, in 16 shades of grey.</summary>
+/// <summary>
+/// Draws a <see cref="ScreenModel"/> for the Kindle Paperwhite 3 in landscape, in 16 shades of grey: the notes in large
+/// letters on the left, today's weather in a narrow column on the right.
+/// </summary>
 public sealed class Renderer {
    /// <summary>Size of the picture in landscape</summary>
    public const int Width = 1448;
    public const int Height = 1072;
 
    private const float Margin = 40;
-   private const float Gutter = 48;
-   private const float ColumnWidth = (Width - 2 * Margin - 2 * Gutter) / 3;
-   private const float Column1 = Margin;
-   private const float Column2 = Column1 + ColumnWidth + Gutter;
-   private const float Column3 = Column2 + ColumnWidth + Gutter;
    private const float Bottom = Height - Margin;
-   private const float ReminderLineHeight = 40;
-   private const float ShoppingRow = 58;
-   private const float NoteLine = 38;
-   private const float NoteGap = 14;
+   private const float SideWidth = 380;
+   private const float SideX = Width - Margin - SideWidth;
+   private const float Divider = SideX - 28;
+   private const float ListRight = Divider - 28;
+
+   /// <summary>Font sizes of the notes, the largest one at which all of them fit is taken.</summary>
+   private static readonly float[] s_noteSizes = [104, 92, 80, 68, 60];
+   private const int MaxLinesPerNote = 3;
+   private const float LineSpacing = 1.2f;
+   /// <summary>Rain chart: one bar per hour from FirstHour to midnight</summary>
+   private const int FirstHour = 6;
 
    private static readonly CultureInfo s_german = CultureInfo.GetCultureInfo("de-DE");
    private static readonly SKColor s_black = SKColors.Black;
    private static readonly SKColor s_grey = new(0x77, 0x77, 0x77);
    private static readonly SKColor s_light = new(0xCC, 0xCC, 0xCC);
+   private static readonly SKColor s_shade = new(0xEE, 0xEE, 0xEE);
 
    private readonly Orientation m_orientation;
    private readonly SKTypeface m_regular;
@@ -81,171 +86,166 @@ public sealed class Renderer {
       canvas.Clear(SKColors.White);
       var zones = new List<Zone>();
 
-      DrawDayAndWeather(canvas, model, localNow, zone);
-      zones.Add(Zone("refresh", 0, 0, Column2 - Gutter / 2, Height));
-      Line(canvas, Column2 - Gutter / 2, Margin, Column2 - Gutter / 2, Bottom, 2, s_light);
-      Line(canvas, Column3 - Gutter / 2, Margin, Column3 - Gutter / 2, Bottom, 2, s_light);
-
-      // Notes get the space they need (at most 45 % of the column), the reminders the rest above them
-      var notesHeight = Math.Min(MeasureNotes(model.Notes), (Bottom - Margin) * 0.45f);
-      var y = DrawReminders(canvas, model.Reminders, Margin, Bottom - (notesHeight > 0 ? notesHeight + 24 : 0), zones);
-      if (model.Notes.Count > 0)
-         DrawNotes(canvas, model.Notes, model.Reminders.Count > 0 ? y + 24 : Margin, Bottom);
-      DrawShopping(canvas, model.Shopping, zones);
+      DrawNotes(canvas, model.Notes, zones);
+      Line(canvas, Divider, Margin, Divider, Bottom, 2, s_light);
+      DrawSide(canvas, model, localNow);
+      zones.Add(Zone("refresh", Divider, 0, Width - Divider, Height));
 
       using var landscape = surface.Snapshot();
       using var turned = Turn(landscape);
       return new Rendering(ToGreyPng(landscape), zones, ToGreyPng(turned), zones.Select(ToDevice).ToList());
    }
 
-   // --- Columns ---
+   // --- Notes ---
 
-   private void DrawDayAndWeather(SKCanvas canvas, ScreenModel model, DateTime localNow, TimeZoneInfo zone) {
-      var x = Column1;
-      var right = Column1 + ColumnWidth;
+   /// <summary>A note laid out for one font size.</summary>
+   /// <param name="Shortened">The text did not fit into MaxLinesPerNote lines and ends with "…"</param>
+   private sealed record Block(NoteLine Note, List<string> Lines, float Height, bool Shortened);
+
+   private void DrawNotes(SKCanvas canvas, List<NoteLine> notes, List<Zone> zones) {
+      if (notes.Count == 0) {
+         Text(canvas, "Nichts zu tun", (Margin + ListRight) / 2, Height / 2 + 24, 72, m_semiBold, s_light, SKTextAlign.Center);
+         return;
+      }
+
+      // The largest size at which all notes fit without shortening one; failing that the largest at which all fit
+      // shortened; failing that the smallest, with as many notes as fit
+      const float available = Bottom - Margin;
+      var layouts = s_noteSizes.Select(size => (Size: size, Blocks: Layout(notes, size))).ToList();
+      var fitting = layouts.Where(layout => layout.Blocks.Sum(block => block.Height) <= available).ToList();
+      var (size, blocks) = fitting.FirstOrDefault(layout => !layout.Blocks.Any(block => block.Shortened)) is { Blocks: not null } clean
+         ? clean
+         : fitting.Count > 0 ? fitting[0] : layouts[^1];
+      var more = 0;
+      if (blocks.Sum(block => block.Height) > available) {
+         const float moreHeight = 56;
+         var used = 0f;
+         var shown = 0;
+         while (shown < blocks.Count && used + blocks[shown].Height <= available - moreHeight) {
+            used += blocks[shown].Height;
+            shown++;
+         }
+         more = blocks.Count - shown;
+         blocks = blocks.Take(shown).ToList();
+      }
+
+      var radius = size * 0.3f;
+      var textX = TextX(size);
+      using var font = Font(m_semiBold, size);
+      var y = Margin;
+      foreach (var block in blocks) {
+         var baseline = y + size * 0.95f;
+         var center = new SKPoint(Margin + radius, baseline - size * 0.36f);
+         if (block.Note.Done) {
+            using (var fill = Fill(s_grey))
+               canvas.DrawCircle(center, radius, fill);
+            Check(canvas, center, radius);
+         } else {
+            using var ring = Stroke(Math.Max(4, size * 0.06f));
+            canvas.DrawCircle(center, radius - size * 0.03f, ring);
+         }
+         foreach (var line in block.Lines) {
+            Text(canvas, line, textX, baseline, size, m_semiBold, block.Note.Done ? s_grey : s_black);
+            if (block.Note.Done) {
+               var strikeY = baseline - size * 0.3f;
+               Line(canvas, textX, strikeY, textX + font.MeasureText(line), strikeY, Math.Max(3, size * 0.05f), s_grey);
+            }
+            baseline += size * LineSpacing;
+         }
+         zones.Add(Zone($"item:{block.Note.Id}", 0, y - size * 0.15f, Divider, block.Height));
+         y += block.Height;
+      }
+      if (more > 0)
+         Text(canvas, $"+ {more} weitere", textX, y + 40, 36, m_regular, s_grey);
+   }
+
+   private static float TextX(float size) => Margin + size * 1.0f;
+
+   private List<Block> Layout(List<NoteLine> notes, float size) {
+      using var font = Font(m_semiBold, size);
+      var width = ListRight - TextX(size);
+      return notes.Select(note => {
+         var lines = Wrap(note.Text, width, font);
+         var shortened = lines.Count > MaxLinesPerNote || lines.Any(line => font.MeasureText(line) > width);
+         if (lines.Count > MaxLinesPerNote) {
+            // The rest goes into the last line, shortened with "…"
+            var rest = string.Join(" ", lines.Skip(MaxLinesPerNote - 1));
+            lines = [.. lines.Take(MaxLinesPerNote - 1), Fit(rest, width, size, m_semiBold)];
+         }
+         // Single words wider than the line are shortened as well
+         lines = lines.Select(line => Fit(line, width, size, m_semiBold)).ToList();
+         return new Block(note, lines, lines.Count * size * LineSpacing + size * 0.3f, shortened);
+      }).ToList();
+   }
+
+   // --- Day and weather ---
+
+   private void DrawSide(SKCanvas canvas, ScreenModel model, DateTime localNow) {
+      const float x = SideX;
+      const float right = SideX + SideWidth;
       var date = model.Date.ToDateTime(TimeOnly.MinValue);
-      Text(canvas, date.ToString("dddd", s_german), x, Margin + 56, 64, m_bold, s_black);
-      Text(canvas, date.ToString("d. MMMM yyyy", s_german), x, Margin + 102, 32, m_regular, s_black);
+      var weekday = date.ToString("dddd", s_german);
+      Text(canvas, weekday, x, Margin + 56, FitSize(weekday, SideWidth, 64, m_bold), m_bold, s_black);
+      Text(canvas, date.ToString("d. MMMM", s_german), x, Margin + 102, 32, m_regular, s_black);
 
       var weather = model.Weather;
       if (weather is null) {
          Text(canvas, "Noch keine Wetterdaten", x, Margin + 220, 30, m_regular, s_grey);
       } else {
-         var top = Margin + 136;
-         WeatherIcon.Draw(canvas, weather.Now.Icon, x - 6, top, 150);
-         Text(canvas, Degrees(weather.Now.Temperature), x + 156, top + 120, 120, m_bold, s_black);
+         const float top = Margin + 136;
+         WeatherIcon.Draw(canvas, weather.Now.Icon, x - 6, top, 130);
+         Text(canvas, Degrees(weather.Now.Temperature), x + 140, top + 108, 112, m_bold, s_black);
 
-         var today = weather.Days.FirstOrDefault();
-         var line = top + 186;
-         if (today is not null) {
+         const float line = top + 180;
+         if (weather.Today is { } today) {
             Text(canvas, $"{Degrees(today.Min)} / {Degrees(today.Max)}", x, line, 36, m_semiBold, s_black);
-            Text(canvas, $"Regen {Percent(today.PrecipitationProbability)}", right, line, 28, m_regular, s_black, SKTextAlign.Right);
-            line += 40;
             var rain = today.Precipitation > 0 ? $"{today.Precipitation.ToString("0.#", s_german)} mm" : "trocken";
-            Text(canvas, weather.Now.WindKmh is { } wind ? $"Wind {wind:0} km/h" : "", x, line, 28, m_regular, s_black);
-            Text(canvas, rain, right, line, 28, m_regular, s_black, SKTextAlign.Right);
+            Text(canvas, rain, right, line, 30, m_regular, s_black, SKTextAlign.Right);
          }
-
-         // Next hours
-         var cellsTop = top + 262;
-         var hours = weather.Hours.Take(4).ToList();
-         var cellWidth = ColumnWidth / 4;
-         for (var i = 0; i < hours.Count; i++) {
-            var cx = x + i * cellWidth + cellWidth / 2;
-            Text(canvas, TimeZoneInfo.ConvertTime(hours[i].Time, zone).ToString("HH:mm"), cx, cellsTop + 26, 26, m_regular, s_black, SKTextAlign.Center);
-            WeatherIcon.Draw(canvas, hours[i].Icon, cx - 32, cellsTop + 36, 64);
-            Text(canvas, Degrees(hours[i].Temperature), cx, cellsTop + 132, 28, m_semiBold, s_black, SKTextAlign.Center);
-         }
-
-         // The next days, as many as fit above the battery
-         var dayTop = cellsTop + 160;
-         Line(canvas, x, dayTop, right, dayTop, 2, s_light);
-         foreach (var day in weather.Days.Skip(1)) {
-            if (dayTop + 62 > Bottom - 110)
-               break;
-            var name = day.Date.ToDateTime(TimeOnly.MinValue).ToString("dddd", s_german);
-            Text(canvas, name, x, dayTop + 46, 30, m_semiBold, s_black);
-            WeatherIcon.Draw(canvas, day.Icon, x + 190, dayTop + 6, 54);
-            Text(canvas, $"{Degrees(day.Max)} / {Degrees(day.Min)}", right, dayTop + 46, 30, m_regular, s_black, SKTextAlign.Right);
-            dayTop += 62;
-         }
+         DrawRain(canvas, weather.Hours, model.Hour, x, line + 50, right);
       }
 
       // Foot of the column: battery, time of the picture, source of the weather
       if (model.Battery is { } battery)
          DrawBattery(canvas, x, Bottom - 96, battery, model.Charging);
       Text(canvas, $"Stand {localNow:HH:mm}", right, Bottom - 66, 26, m_regular, s_grey, SKTextAlign.Right);
-      Text(canvas, Fit($"Wetter: DWD · {model.PlaceName}", ColumnWidth, 22, m_regular), x, Bottom - 4, 22, m_regular, s_grey);
+      Text(canvas, Fit($"Wetter: DWD · {model.PlaceName}", SideWidth, 22, m_regular), x, Bottom - 4, 22, m_regular, s_grey);
    }
 
-   private float DrawReminders(SKCanvas canvas, List<ReminderLine> reminders, float top, float bottom, List<Zone> zones) {
-      if (reminders.Count == 0)
-         return top;
-      var x = Column2;
-      var y = Heading(canvas, "Erinnerungen", x, top);
-      using var font = Font(m_regular, 32);
-      for (var i = 0; i < reminders.Count; i++) {
-         var reminder = reminders[i];
-         // The whole text, wrapped onto as many lines as it needs
-         var lines = Wrap(reminder.Text, ColumnWidth - 48, font);
-         var height = lines.Count * ReminderLineHeight + (reminder.DueLabel is null ? 12 : 46);
-         var last = i == reminders.Count - 1;
-         if (y + height > bottom - (last ? 0 : 48)) {
-            Text(canvas, $"+ {reminders.Count - i} weitere", x + 48, y + 32, 26, m_regular, s_grey);
-            return y + 48;
-         }
-         using (var paint = Stroke(3))
-            canvas.DrawCircle(x + 16, y + 28, 15, paint);
-         var lineY = y;
-         foreach (var line in lines) {
-            Text(canvas, line, x + 48, lineY + 40, 32, m_regular, s_black);
-            lineY += ReminderLineHeight;
-         }
-         if (reminder.DueLabel is not null) {
-            using var badgeFont = Font(m_semiBold, 22);
-            var badge = SKRect.Create(x + 48, lineY + 10, badgeFont.MeasureText(reminder.DueLabel) + 20, 30);
-            using var paint = reminder.Overdue ? Fill(s_black) : Stroke(2);
-            canvas.DrawRoundRect(badge, 15, 15, paint);
-            Text(canvas, reminder.DueLabel, badge.MidX, badge.Bottom - 8, 22, m_semiBold, reminder.Overdue ? SKColors.White : s_black, SKTextAlign.Center);
-         }
-         zones.Add(Zone($"reminder:{reminder.Id}", x - Gutter / 2, y - 4, ColumnWidth + Gutter, height));
-         y += height;
+   /// <summary>Small bar chart of the probability of rain, one bar per hour from FirstHour to midnight.</summary>
+   private void DrawRain(SKCanvas canvas, List<WeatherHour> hours, int nowHour, float x, float top, float right) {
+      const float chartHeight = 150;
+      var coming = hours.Where(hour => hour.Hour >= FirstHour && hour.Hour >= nowHour && hour.PrecipitationProbability is not null).ToList();
+      var chartTop = Heading(canvas, "Regen", x, top) + 14;
+      if (coming.Count > 0) {
+         var highest = coming.Max(hour => hour.PrecipitationProbability!.Value);
+         Text(canvas, $"bis {highest} %", right, top + 26, 26, m_semiBold, s_black, SKTextAlign.Right);
       }
-      return y;
-   }
 
-   private float MeasureNotes(List<string> notes) {
-      if (notes.Count == 0)
-         return 0;
-      using var font = Font(m_regular, 28);
-      return 52 + notes.Sum(note => Wrap(note, ColumnWidth - 24, font).Count * NoteLine + NoteGap);
-   }
-
-   private void DrawNotes(SKCanvas canvas, List<string> notes, float top, float bottom) {
-      var x = Column2;
-      var y = Heading(canvas, "Notizen", x, top);
-      using var font = Font(m_regular, 28);
-      foreach (var note in notes) {
-         var lines = Wrap(note, ColumnWidth - 24, font);
-         var fitting = Math.Min(lines.Count, (int)((bottom - y) / NoteLine));
-         if (fitting <= 0)
-            break;
-         using (var bar = Fill(s_black))
-            canvas.DrawRect(SKRect.Create(x, y + 6, 5, fitting * NoteLine - 6), bar);
-         foreach (var line in lines.Take(fitting)) {
-            Text(canvas, line, x + 20, y + 30, 28, m_regular, s_black);
-            y += NoteLine;
+      var baseline = chartTop + chartHeight;
+      var slot = (right - x) / (24 - FirstHour);
+      // The hours that are over are shaded
+      if (nowHour > FirstHour) {
+         using var shade = Fill(s_shade);
+         canvas.DrawRect(SKRect.Create(x, chartTop, (Math.Min(nowHour, 24) - FirstHour) * slot, chartHeight), shade);
+      }
+      // Grid: 100 % and 50 % light, the base line dark
+      Line(canvas, x, chartTop, right, chartTop, 1, s_light);
+      Line(canvas, x, chartTop + chartHeight / 2, right, chartTop + chartHeight / 2, 1, s_light);
+      using (var bar = Fill(s_black)) {
+         foreach (var hour in coming) {
+            var height = Math.Max(3, chartHeight * Math.Clamp(hour.PrecipitationProbability!.Value, 0, 100) / 100f);
+            var left = x + (hour.Hour - FirstHour) * slot + slot * 0.15f;
+            canvas.DrawRoundRect(SKRect.Create(left, baseline - height, slot * 0.7f, height), 2, 2, bar);
          }
-         y += NoteGap;
       }
-   }
-
-   private void DrawShopping(SKCanvas canvas, List<ShoppingLine> shopping, List<Zone> zones) {
-      var x = Column3;
-      var y = Heading(canvas, "Einkaufsliste", x, Margin);
-      if (shopping.Count == 0) {
-         Text(canvas, "Nichts zu kaufen", x, y + 38, 30, m_regular, s_grey);
-         return;
+      Line(canvas, x, baseline, right, baseline, 2, s_black);
+      foreach (var hour in new[] { 6, 12, 18, 24 }) {
+         var align = hour == FirstHour ? SKTextAlign.Left : hour == 24 ? SKTextAlign.Right : SKTextAlign.Center;
+         Text(canvas, $"{hour}", x + (hour - FirstHour) * slot, baseline + 30, 22, m_regular, s_grey, align);
       }
-      var fitting = Math.Max(1, (int)((Bottom - y) / ShoppingRow));
-      var shown = shopping.Count > fitting ? shopping.Take(fitting - 1).ToList() : shopping;
-      foreach (var item in shown) {
-         var box = SKRect.Create(x + 2, y + ShoppingRow / 2 - 16, 32, 32);
-         using (var paint = Stroke(3))
-            canvas.DrawRect(box, paint);
-         if (item.Done)
-            Check(canvas, box);
-         var text = Fit(item.Text, ColumnWidth - 52, 32, m_regular);
-         Text(canvas, text, x + 52, y + ShoppingRow / 2 + 11, 32, m_regular, item.Done ? s_grey : s_black);
-         if (item.Done) {
-            using var font = Font(m_regular, 32);
-            Line(canvas, x + 52, y + ShoppingRow / 2, x + 52 + font.MeasureText(text), y + ShoppingRow / 2, 2, s_grey);
-         }
-         zones.Add(Zone($"shopping:{item.Id}", x - Gutter / 2, y, ColumnWidth + Gutter / 2 + Margin, ShoppingRow));
-         y += ShoppingRow;
-      }
-      if (shown.Count < shopping.Count)
-         Text(canvas, $"+ {shopping.Count - shown.Count} weitere", x + 52, y + ShoppingRow / 2 + 10, 28, m_regular, s_grey);
+      if (coming.Count == 0)
+         Text(canvas, "keine Angabe", (x + right) / 2, chartTop + chartHeight / 2 - 10, 26, m_regular, s_grey, SKTextAlign.Center);
    }
 
    // --- Small parts ---
@@ -266,12 +266,13 @@ public sealed class Renderer {
       Text(canvas, charging ? $"{level} % · lädt" : $"{level} %", x + 84, y + 26, 26, m_semiBold, s_black);
    }
 
-   private static void Check(SKCanvas canvas, SKRect box) {
-      using var paint = Stroke(5);
+   /// <summary>White check mark in a filled circle.</summary>
+   private static void Check(SKCanvas canvas, SKPoint center, float radius) {
+      using var paint = Stroke(Math.Max(3, radius * 0.22f), SKColors.White);
       using var pathBuilder = new SKPathBuilder();
-      pathBuilder.MoveTo(box.Left + 6, box.MidY);
-      pathBuilder.LineTo(box.Left + 13, box.Bottom - 7);
-      pathBuilder.LineTo(box.Right - 5, box.Top + 6);
+      pathBuilder.MoveTo(center.X - radius * 0.45f, center.Y + radius * 0.02f);
+      pathBuilder.LineTo(center.X - radius * 0.12f, center.Y + radius * 0.35f);
+      pathBuilder.LineTo(center.X + radius * 0.48f, center.Y - radius * 0.32f);
       using var path = pathBuilder.Detach();
       canvas.DrawPath(path, paint);
    }
@@ -283,6 +284,13 @@ public sealed class Renderer {
       using var font = Font(typeface, size);
       using var paint = Fill(color);
       canvas.DrawText(text, x, y, align, font, paint);
+   }
+
+   /// <summary>The font size up to maxSize at which a text fits into the width.</summary>
+   private float FitSize(string text, float width, float maxSize, SKTypeface typeface) {
+      using var font = Font(typeface, maxSize);
+      var measured = font.MeasureText(text);
+      return measured <= width ? maxSize : MathF.Floor(maxSize * width / measured);
    }
 
    /// <summary>Shortens a text with "…" until it fits into the width.</summary>
