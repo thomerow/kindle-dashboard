@@ -76,8 +76,9 @@ Planned:
 - [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors for the map, Nominatim for place names,
   [Open-Meteo](https://open-meteo.com) for time zones, [ipwho.is](https://ipwho.is) for the first guess of the place,
   [Leaflet](https://leafletjs.com) for the map on the web page.
-- [SkiaSharp](https://github.com/mono/SkiaSharp) for drawing, and the [Noto Sans](https://notofonts.github.io) font
-  (SIL Open Font License 1.1, see `server/src/Dashboard/Fonts/OFL.txt`).
+- [SkiaSharp](https://github.com/mono/SkiaSharp) for drawing, and the fonts [Noto Sans](https://notofonts.github.io) and
+  [Noto Emoji](https://fonts.google.com/noto/specimen/Noto+Emoji) (SIL Open Font License 1.1, see `OFL.txt` and
+  `OFL-NotoEmoji.txt` in `server/src/Dashboard/Fonts/`).
 
 ## License
 

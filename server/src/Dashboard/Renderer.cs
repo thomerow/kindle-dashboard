@@ -2,6 +2,7 @@
 // Author: Thorsten Kummerow <thorsten.kummerow (at) gmail (dot) com>
 
 using System.Globalization;
+using System.Text;
 using SkiaSharp;
 
 namespace Dashboard;
@@ -76,6 +77,7 @@ public sealed class Renderer {
    private readonly SKTypeface m_regular;
    private readonly SKTypeface m_semiBold;
    private readonly SKTypeface m_bold;
+   private readonly SKTypeface m_emoji;
 
    public Renderer(Orientation orientation = Orientation.ButtonRight) {
       m_orientation = orientation;
@@ -83,6 +85,7 @@ public sealed class Renderer {
       m_regular = SKTypeface.FromFile(Path.Combine(fonts, "NotoSans-Regular.ttf"));
       m_semiBold = SKTypeface.FromFile(Path.Combine(fonts, "NotoSans-SemiBold.ttf"));
       m_bold = SKTypeface.FromFile(Path.Combine(fonts, "NotoSans-Bold.ttf"));
+      m_emoji = SKTypeface.FromFile(Path.Combine(fonts, "NotoEmoji-Regular.ttf"));
    }
 
    public Rendering Render(ScreenModel model, DateTime localNow, TimeZoneInfo zone) {
@@ -137,7 +140,6 @@ public sealed class Renderer {
 
       var radius = size * 0.3f;
       var textX = TextX(size);
-      using var font = Font(m_semiBold, size);
       var y = Margin;
       foreach (var block in blocks) {
          var baseline = y + size * 0.95f;
@@ -154,7 +156,7 @@ public sealed class Renderer {
             Text(canvas, line, textX, baseline, size, m_semiBold, block.Note.Done ? s_grey : s_black);
             if (block.Note.Done) {
                var strikeY = baseline - size * 0.3f;
-               Line(canvas, textX, strikeY, textX + font.MeasureText(line), strikeY, Math.Max(3, size * 0.05f), s_grey);
+               Line(canvas, textX, strikeY, textX + Measure(line, size, m_semiBold), strikeY, Math.Max(3, size * 0.05f), s_grey);
             }
             baseline += size * LineSpacing;
          }
@@ -168,11 +170,10 @@ public sealed class Renderer {
    private static float TextX(float size) => Margin + size * 1.0f;
 
    private List<Block> Layout(List<NoteLine> notes, float size) {
-      using var font = Font(m_semiBold, size);
       var width = ListRight - TextX(size);
       return notes.Select(note => {
-         var lines = Wrap(note.Text, width, font);
-         var shortened = lines.Count > MaxLinesPerNote || lines.Any(line => font.MeasureText(line) > width);
+         var lines = Wrap(note.Text, width, size, m_semiBold);
+         var shortened = lines.Count > MaxLinesPerNote || lines.Any(line => Measure(line, size, m_semiBold) > width);
          if (lines.Count > MaxLinesPerNote) {
             // The rest goes into the last line, shortened with "…"
             var rest = string.Join(" ", lines.Skip(MaxLinesPerNote - 1));
@@ -275,11 +276,10 @@ public sealed class Renderer {
       const int maxAlerts = 2;
       var y = sunTop + 70;
       var shown = model.Alerts.Count > maxAlerts ? maxAlerts - 1 : model.Alerts.Count;
-      using var whenFont = Font(m_regular, 26);
       foreach (var alert in model.Alerts.Take(shown)) {
          using (var fill = Fill(s_black))
             canvas.DrawRoundRect(SKRect.Create(x, y, SideWidth, boxHeight), 8, 8, fill);
-         var whenWidth = alert.When.Length == 0 ? 0 : whenFont.MeasureText(alert.When) + 16;
+         var whenWidth = alert.When.Length == 0 ? 0 : Measure(alert.When, 26, m_regular) + 16;
          Text(canvas, Fit(alert.Event, SideWidth - 32 - whenWidth, 30, m_bold), x + 16, y + 41, 30, m_bold, SKColors.White);
          Text(canvas, alert.When, right - 16, y + 40, 26, m_regular, SKColors.White, SKTextAlign.Right);
          y += boxHeight + 10;
@@ -340,37 +340,117 @@ public sealed class Renderer {
    private static string Degrees(double? value) => value is null ? "–" : $"{Math.Round(value.Value):0}°";
    private static string Percent(int? value) => value is null ? "–" : $"{value} %";
 
+   // --- Text with emojis ---
+   // Skia draws a text with one typeface and without shaping. Noto Sans has no emojis, so every text is split into
+   // runs: letters from the given typeface, emojis from Noto Emoji (black and white, which suits the e-ink display).
+
+   /// <summary>A piece of text that is drawn with one typeface.</summary>
+   private readonly record struct Run(string Text, SKTypeface Typeface);
+
+   private List<Run> Runs(string text, SKTypeface typeface) {
+      var runs = new List<Run>();
+      var current = new StringBuilder();
+      var currentTypeface = typeface;
+      foreach (var element in TextElements(text)) {
+         var (elementTypeface, visible) = Classify(element, typeface);
+         if (visible.Length == 0)
+            continue;
+         if (elementTypeface != currentTypeface && current.Length > 0) {
+            runs.Add(new Run(current.ToString(), currentTypeface));
+            current.Clear();
+         }
+         currentTypeface = elementTypeface;
+         current.Append(visible);
+      }
+      if (current.Length > 0)
+         runs.Add(new Run(current.ToString(), currentTypeface));
+      return runs;
+   }
+
+   /// <summary>
+   /// Which typeface draws a character as the reader sees it (a grapheme, e.g. "❤️" or "👍🏽"), and what of it is drawn.
+   /// An emoji is one that asks for emoji presentation (U+FE0F), lies in the emoji blocks from U+1F000 on, or is
+   /// missing from the text font. Selectors, joiners and skin tones are left out: without shaping a sequence does not
+   /// combine anyway, and the plain emoji reads better than its parts.
+   /// </summary>
+   private (SKTypeface Typeface, string Text) Classify(string element, SKTypeface typeface) {
+      var kept = new StringBuilder();
+      var presentation = false;
+      int? first = null;
+      foreach (var rune in element.EnumerateRunes()) {
+         switch (rune.Value) {
+            case 0xFE0F:
+               presentation = true;
+               continue;
+            case 0xFE0E or 0x200D or >= 0x1F3FB and <= 0x1F3FF:
+               continue;
+         }
+         first ??= rune.Value;
+         kept.Append(rune.ToString());
+      }
+      if (first is not { } codepoint)
+         return (typeface, "");
+      var emoji = presentation || codepoint >= 0x1F000 || !HasGlyph(typeface, codepoint);
+      return (emoji && HasGlyph(m_emoji, codepoint) ? m_emoji : typeface, kept.ToString());
+   }
+
+   private static bool HasGlyph(SKTypeface typeface, int codepoint) {
+      using var font = new SKFont(typeface);
+      return font.ContainsGlyph(codepoint);
+   }
+
+   private static List<string> TextElements(string text) {
+      var elements = new List<string>();
+      var enumerator = StringInfo.GetTextElementEnumerator(text);
+      while (enumerator.MoveNext())
+         elements.Add(enumerator.GetTextElement());
+      return elements;
+   }
+
+   private float Measure(string text, float size, SKTypeface typeface) =>
+      Runs(text, typeface).Sum(run => {
+         using var font = Font(run.Typeface, size);
+         return font.MeasureText(run.Text);
+      });
+
    private void Text(SKCanvas canvas, string text, float x, float y, float size, SKTypeface typeface, SKColor color, SKTextAlign align = SKTextAlign.Left) {
-      using var font = Font(typeface, size);
+      var runs = Runs(text, typeface);
+      if (align != SKTextAlign.Left) {
+         var width = Measure(text, size, typeface);
+         x -= align == SKTextAlign.Center ? width / 2 : width;
+      }
       using var paint = Fill(color);
-      canvas.DrawText(text, x, y, align, font, paint);
+      foreach (var run in runs) {
+         using var font = Font(run.Typeface, size);
+         canvas.DrawText(run.Text, x, y, SKTextAlign.Left, font, paint);
+         x += font.MeasureText(run.Text);
+      }
    }
 
    /// <summary>The font size up to maxSize at which a text fits into the width.</summary>
    private float FitSize(string text, float width, float maxSize, SKTypeface typeface) {
-      using var font = Font(typeface, maxSize);
-      var measured = font.MeasureText(text);
+      var measured = Measure(text, maxSize, typeface);
       return measured <= width ? maxSize : MathF.Floor(maxSize * width / measured);
    }
 
-   /// <summary>Shortens a text with "…" until it fits into the width.</summary>
+   /// <summary>Shortens a text with "…" until it fits into the width, never inside a character.</summary>
    private string Fit(string text, float width, float size, SKTypeface typeface) {
-      using var font = Font(typeface, size);
-      if (font.MeasureText(text) <= width)
+      if (Measure(text, size, typeface) <= width)
          return text;
-      var length = text.Length;
-      while (length > 1 && font.MeasureText(text[..length] + "…") > width)
-         length--;
-      return text[..length].TrimEnd() + "…";
+      var elements = TextElements(text);
+      var count = elements.Count;
+      while (count > 1 && Measure(string.Concat(elements.Take(count)) + "…", size, typeface) > width)
+         count--;
+      return string.Concat(elements.Take(count)).TrimEnd() + "…";
    }
 
-   private static List<string> Wrap(string text, float width, SKFont font) {
+   private List<string> Wrap(string text, float width, float size, SKTypeface typeface) {
       var lines = new List<string>();
       foreach (var paragraph in text.Split('\n')) {
          var line = "";
          foreach (var word in paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries)) {
             var candidate = line.Length == 0 ? word : line + " " + word;
-            if (font.MeasureText(candidate) <= width || line.Length == 0) {
+            if (Measure(candidate, size, typeface) <= width || line.Length == 0) {
                line = candidate;
             } else {
                lines.Add(line);
