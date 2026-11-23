@@ -1,7 +1,7 @@
 # Kindle dashboard
 
-An old Kindle Paperwhite 3 as a dashboard on the wall: weather, reminders, notes and the shopping list, kept up to date
-from anywhere with a phone. Items can be checked off right on the Kindle by tapping them.
+An old Kindle Paperwhite 3 on the door instead of Post-its: a list of short notes in large letters and today's weather,
+kept up to date from anywhere with a phone. Notes can be checked off right on the Kindle by tapping them.
 
 ![The dashboard as it looks on the wall](docs/dashboard.png)
 
@@ -13,7 +13,7 @@ from anywhere with a phone. Items can be checked off right on the Kindle by tapp
  phone, anywhere                  your server (VPS)                          Kindle on the wall
 ┌───────────────┐   HTTPS    ┌───────────────────────────┐    HTTPS     ┌──────────────────────┐
 │ web page      │ ─────────> │ ASP.NET Core application  │ <─────────── │ dashboard.sh         │
-│ lists, place  │  password  │ data (SQLite), weather,   │ device token │ fetch picture, show, │
+│ notes, place  │  password  │ data (SQLite), weather,   │ device token │ fetch picture, show, │
 │ on a map      │            │ draws the picture, taps,  │              │ sleep until told,    │
 └───────────────┘            │ wake-up times             │              │ taps after a button  │
                              └───────────────────────────┘              │ press                │
@@ -24,11 +24,11 @@ from anywhere with a phone. Items can be checked off right on the Kindle by tapp
 - **The server does the work.** It keeps the data, fetches the weather, draws the complete picture and decides when
   the Kindle wakes up next. The Kindle only shows pictures and reports taps, so the layout can change without
   touching the Kindle.
-- **The Kindle runs on battery.** It sleeps between updates (every 30 minutes by default, not at night, earlier when
-  a reminder is due) with the light off. A press on the power button turns on the light and takes taps for a minute.
+- **The Kindle runs on battery.** It sleeps between updates (every 30 minutes by default, not at night) with the light
+  off. A press on the power button turns on the light and takes taps for a minute.
   On the charger it stays awake and updates within seconds.
-- **The phone** uses a small web page behind a password: shopping list, reminders with date and time, notes, the place
-  of the weather on an OpenStreetMap map, a preview of the picture and the Kindle's battery.
+- **The phone** uses a small web page behind a password: the notes on a yellow Post-it, the place of the weather on an
+  OpenStreetMap map, a preview of the picture and the Kindle's battery.
 
 ## What you need
 

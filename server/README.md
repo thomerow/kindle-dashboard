@@ -1,7 +1,7 @@
 # Dashboard server
 
-Small ASP.NET Core 10 server: the central part of the [Kindle dashboard](../README.md). It keeps the shopping list,
-notes and reminders, fetches the weather, draws the picture for the Kindle and tells the Kindle when to wake up
+Small ASP.NET Core 10 server: the central part of the [Kindle dashboard](../README.md). It keeps a list of short
+notes to check off, fetches the weather, draws the picture for the Kindle and tells the Kindle when to wake up
 next. A web page for the phone changes the data from anywhere.
 
 ```
@@ -27,18 +27,19 @@ The interface is described in [`API.md`](API.md).
 
 ## What the server does
 
-- **Data:** shopping list, notes, reminders (with date or date and time), settings and a log of the Kindle's battery,
-  in an SQLite database.
-- **Weather:** current weather, the next hours and the next five days from [Bright Sky](https://brightsky.dev)
+- **Data:** the notes, settings and a log of the Kindle's battery, in an SQLite database. A checked-off note is
+  deleted after 12 hours.
+- **Weather:** current weather and today's hours (temperature, probability of rain) from [Bright Sky](https://brightsky.dev)
   (data of the Deutscher Wetterdienst, so it covers Germany and the regions around it), fetched every 30 minutes.
 - **Picture:** drawn with [SkiaSharp](https://github.com/mono/SkiaSharp) in landscape (1448 × 1072), with
   anti-aliasing and reduced to the 16 grey levels of the e-ink display. For the Kindle it is turned into the portrait
   orientation of its display, together with the tappable areas. It is only drawn again when its content changes.
+  The notes get the largest font size at which all of them fit.
 - **Wake-up times:** the Kindle runs on battery and sleeps between updates. The server tells it when to wake up:
-  every *n* minutes, not during the quiet hours, and earlier when a reminder with a time becomes due.
-- **Taps:** the Kindle reports which area was tapped (check off an item, mark a reminder as done), the server
+  every *n* minutes and not during the quiet hours.
+- **Taps:** the Kindle reports which area was tapped (check off a note, or back on), the server
   changes the data and answers with the new picture.
-- **Web page:** one HTML file without a framework, made for a phone in portrait orientation. Lists, a preview of the
+- **Web page:** one HTML file without a framework, made for a phone in portrait orientation. The notes, a preview of the
   picture, the Kindle's battery, and the place of the weather on an OpenStreetMap map (with a first guess from the IP
   address).
 
@@ -46,13 +47,13 @@ The interface is described in [`API.md`](API.md).
 
 ```
 src/Dashboard/Program.cs          endpoints, configuration, command line tools
-src/Dashboard/Store.cs            SQLite: items, settings, battery log
+src/Dashboard/Store.cs            SQLite: notes, settings, battery log
 src/Dashboard/Secrets.cs          state directory, password hash, device token
 src/Dashboard/Screen.cs           current picture, Kindle state, taps
 src/Dashboard/Renderer.cs         drawing the picture (layout), turning it for the display
 src/Dashboard/WeatherIcon.cs      weather icons as vector shapes
 src/Dashboard/Weather.cs          Bright Sky
-src/Dashboard/Schedule.cs         local time, due dates, wake-up times
+src/Dashboard/Schedule.cs         local time, wake-up times
 src/Dashboard/Geo.cs              IP position, place search, names and time zones
 src/Dashboard/Fonts/              Noto Sans (SIL Open Font License, see OFL.txt)
 src/Dashboard/wwwroot/index.html  web page

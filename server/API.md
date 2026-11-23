@@ -30,15 +30,13 @@ The password and the device token are set on the server with command line tools,
 
 ### Item
 
-An entry of the shopping list, a note or a reminder.
+A note on the list, like a Post-it on the door.
 
 ```json
 {
   "id": 12,
-  "kind": "reminder",
   "text": "Take out the rubbish",
   "created": "2026-10-30T21:11:21.3731062+00:00",
-  "due": "2026-10-31T19:00",
   "done": null
 }
 ```
@@ -46,19 +44,16 @@ An entry of the shopping list, a note or a reminder.
 | Field | Type | Meaning |
 |---|---|---|
 | `id` | number | unique, assigned by the server |
-| `kind` | `"shopping"` \| `"note"` \| `"reminder"` | |
-| `text` | string | at most 200 characters, notes may contain line breaks |
+| `text` | string | at most 200 characters |
 | `created` | ISO 8601, UTC | |
-| `due` | string \| null | reminders only: local date `yyyy-MM-dd` or local date and time `yyyy-MM-ddTHH:mm`, in the time zone of the settings |
-| `done` | ISO 8601 \| null | when a shopping item was checked off or a reminder was marked as done |
+| `done` | ISO 8601 \| null | when the note was checked off |
 
-What the picture shows:
+What the picture shows: open notes in the order they were written, then checked-off ones (struck through), in the
+largest font size at which all of them fit (at most three lines each). Checked-off notes are deleted automatically
+after 12 hours.
 
-- **Shopping list:** open items first, then checked-off ones (struck through). Checked-off items are deleted
-  automatically after 12 hours.
-- **Reminders:** those not done, sorted by due date, at most 20 and at most 14 days ahead. A reminder is overdue
-  (shown inverted) once its time has passed; a reminder with a date only is due at the end of that day.
-- **Notes:** newest first.
+The database keeps the columns `kind` and `due` of an earlier version with shopping list, notes and reminders. Items of
+those kinds show up as notes; new ones get the kind `todo`.
 
 ### Settings
 
@@ -78,7 +73,7 @@ What the picture shows:
 |---|---|---|
 | `placeName` | string | name shown on the picture, at most 60 characters |
 | `latitude`, `longitude` | number | place of the weather forecast |
-| `timeZone` | IANA name | local time for the date, due dates and wake-up times |
+| `timeZone` | IANA name | local time for the date, the weather of the day and wake-up times |
 | `intervalMinutes` | 5–1440 | the Kindle on battery wakes up every this many minutes, counted from midnight |
 | `quietFrom`, `quietTo` | `"HH:mm"` | no regular wake-ups in between; may cross midnight; equal times: no quiet hours |
 
@@ -106,21 +101,20 @@ All items, ordered by `id`.
 
 ### `POST /api/items`
 
-Body `{"kind": "reminder", "text": "…", "due": "2026-10-31T19:00"}` (`due` optional, reminders only). Answers the new
-item. Invalid data: `400` with `{"error": "…"}`.
+Body `{"text": "…"}`. Answers the new item. Invalid data: `400` with `{"error": "…"}`.
 
 ### `PATCH /api/items/{id}`
 
-Body with the fields to change, all optional: `{"text": "…", "due": "…", "done": true}`. `"due": ""` removes the due
-date, `"done": false` takes back a check mark. Answers the changed item, `404` if there is none with this id.
+Body with the fields to change, both optional: `{"text": "…", "done": true}`. `"done": false` takes back a check
+mark. Answers the changed item, `404` if there is none with this id.
 
 ### `DELETE /api/items/{id}`
 
 `204`, or `404`.
 
-### `POST /api/items/delete-done?kind=shopping`
+### `POST /api/items/delete-done`
 
-Deletes all done items of a kind. `{"deleted": 3}`.
+Deletes all checked-off items. `{"deleted": 3}`.
 
 ### `GET /api/settings`, `PUT /api/settings`
 
@@ -194,19 +188,18 @@ Answer (`text/plain`), one entry per line:
 ```
 rev 36558139619c
 wake 1118
-zone refresh 0 0 1072 488
-zone reminder:10 910 488 84 472
+zone item:18 768 0 280 1000
+zone refresh 0 1000 1072 448
 …
 ```
 
 | Line | Meaning |
 |---|---|
 | `rev <rev>` | revision of the current picture |
-| `wake <seconds>` | when the Kindle should wake up next (at least 120): the next interval slot, moved behind the quiet hours, or earlier if a reminder with a time is due |
+| `wake <seconds>` | when the Kindle should wake up next (at least 120): the next interval slot, moved behind the quiet hours |
 | `zone <id> <x> <y> <width> <height>` | a tappable area in **touch coordinates of the display** (portrait, 1072 × 1448), already turned to the orientation the Kindle hangs in |
 
-Zone ids: `shopping:<id>` checks an item off (or back on), `reminder:<id>` marks a reminder as done, `refresh` only
-redraws.
+Zone ids: `item:<id>` checks a note off (or back on), `refresh` only redraws.
 
 The battery level and the charging state are part of the picture, so a change of them can give a new `rev`
 (the battery in steps of 5 %).

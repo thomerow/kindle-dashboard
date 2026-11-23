@@ -99,7 +99,7 @@ The server must be running and you need its URL and a device token (see the
 Hang the Kindle in landscape with the power button on the right (or set `Orientation=ButtonLeft` on the server).
 
 **Day to day:** the Kindle sleeps and wakes up by itself when the server says so (every 30 minutes by default, not
-during the quiet hours, and when a reminder becomes due). It fetches the picture and goes back to sleep after a few
+during the quiet hours). It fetches the picture and goes back to sleep after a few
 seconds. The front light stays off. Changes from the phone therefore show up at the next wake-up.
 
 **Taps:** press the power button once. The light turns on, the picture is updated, and for 60 seconds taps are
@@ -107,9 +107,8 @@ taken (each tap starts the 60 seconds again):
 
 | Tap on | Effect |
 |---|---|
-| an item of the shopping list | checks it off, or back on |
-| a reminder | marks it as done (it disappears) |
-| the left column (date, weather) | updates the picture |
+| a note | checks it off, or back on (checked-off notes disappear after 12 hours) |
+| the right column (date, weather) | updates the picture |
 
 A tapped area gets a black frame at once; the new picture follows after two or three seconds.
 
