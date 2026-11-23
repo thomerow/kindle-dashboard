@@ -161,6 +161,39 @@ public sealed class Screen : IHostedService, IDisposable {
       // The rain chart starts with the current hour, so the picture changes once an hour
       var utc = DateTimeOffset.UtcNow;
       var hour = new DateTimeOffset(utc.Year, utc.Month, utc.Day, utc.Hour, 0, 0, TimeSpan.Zero);
-      return new ScreenModel(DateOnly.FromDateTime(now), hour, settings.PlaceName, m_weather.Current, notes, battery, device.Charging);
+      var zone = Schedule.GetTimeZone(settings.TimeZone);
+      var today = DateOnly.FromDateTime(now);
+      var sun = Sun.Times(today, settings.Latitude, settings.Longitude) is var (rise, set)
+         ? new SunLine(TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(rise, zone).DateTime), TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(set, zone).DateTime))
+         : null;
+      var alerts = AlertLines(m_weather.Current?.Alerts ?? [], utc, zone);
+      return new ScreenModel(today, hour, settings.PlaceName, m_weather.Current, notes, sun, alerts, battery, device.Charging);
+   }
+
+   private static readonly string[] s_severities = ["extreme", "severe", "moderate", "minor"];
+
+   /// <summary>
+   /// Warnings that are in force or begin within the next 24 hours, the most severe first, each kind once, with "bis"
+   /// or "ab" and a time.
+   /// </summary>
+   private static List<AlertLine> AlertLines(List<WeatherAlert> alerts, DateTimeOffset now, TimeZoneInfo zone) {
+      var german = CultureInfo.GetCultureInfo("de-DE");
+      var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, zone).DateTime);
+      string When(DateTimeOffset time) {
+         var local = TimeZoneInfo.ConvertTime(time, zone).DateTime;
+         var days = DateOnly.FromDateTime(local).DayNumber - today.DayNumber;
+         var day = days switch { 0 => "", 1 => "morgen ", _ => local.ToString("ddd ", german) };
+         return day + (local.Minute == 0 ? $"{local.Hour} Uhr" : local.ToString("H:mm", german));
+      }
+      int Rank(string severity) => Array.IndexOf(s_severities, severity) is var rank and >= 0 ? rank : s_severities.Length;
+      return alerts
+         .Where(alert => alert.Onset <= now.AddHours(24) && (alert.Expires is null || alert.Expires > now))
+         .OrderBy(alert => Rank(alert.Severity))
+         .ThenBy(alert => alert.Onset)
+         .DistinctBy(alert => alert.Event)
+         .Select(alert => new AlertLine(
+            german.TextInfo.ToTitleCase(alert.Event.ToLower(german)),
+            alert.Onset > now ? $"ab {When(alert.Onset)}" : alert.Expires is { } expires ? $"bis {When(expires)}" : ""))
+         .ToList();
    }
 }

@@ -13,7 +13,12 @@ public sealed record WeatherToday(double? Min, double? Max, double Precipitation
 /// <param name="Time">Start of the hour</param>
 /// <param name="PrecipitationProbability">Only for hours of the forecast, null for hours that are already over</param>
 public sealed record WeatherHour(DateTimeOffset Time, int? PrecipitationProbability);
-public sealed record WeatherData(DateTimeOffset FetchedAt, WeatherNow Now, WeatherToday? Today, List<WeatherHour> Hours);
+/// <summary>A warning of the Deutscher Wetterdienst for the place.</summary>
+/// <param name="Event">e.g. "GLÄTTE", "FROST", "STURMBÖEN"</param>
+/// <param name="Severity">minor, moderate, severe or extreme</param>
+/// <param name="Expires">Null: until further notice</param>
+public sealed record WeatherAlert(string Event, string Severity, DateTimeOffset Onset, DateTimeOffset? Expires);
+public sealed record WeatherData(DateTimeOffset FetchedAt, WeatherNow Now, WeatherToday? Today, List<WeatherHour> Hours, List<WeatherAlert> Alerts);
 
 /// <summary>Fetches the weather every 30 minutes and whenever the place changes.</summary>
 public sealed class WeatherService(IHttpClientFactory httpClients, Store store, ILogger<WeatherService> logger) : BackgroundService {
@@ -99,7 +104,29 @@ public sealed class WeatherService(IHttpClientFactory httpClients, Store store, 
          .Select(hour => new WeatherHour(hour.Time, hour.Probability))
          .ToList();
 
-      return new WeatherData(nowUtc, weatherNow, summary, ahead);
+      return new WeatherData(nowUtc, weatherNow, summary, ahead, await FetchAlertsAsync(client, place, cancellation));
+   }
+
+   /// <summary>Warnings for the place. Without them the weather is still shown, so a failure only gets logged.</summary>
+   private async Task<List<WeatherAlert>> FetchAlertsAsync(HttpClient client, string place, CancellationToken cancellation) {
+      try {
+         using var document = JsonDocument.Parse(await client.GetStringAsync($"alerts?{place}", cancellation));
+         var alerts = new List<WeatherAlert>();
+         foreach (var alert in document.RootElement.GetProperty("alerts").EnumerateArray()) {
+            if (Text(alert, "event_de") is not { } name || Text(alert, "onset") is not { } onset)
+               continue;
+            var expires = Text(alert, "expires");
+            alerts.Add(new WeatherAlert(
+               name,
+               Text(alert, "severity") ?? "minor",
+               DateTimeOffset.Parse(onset, CultureInfo.InvariantCulture),
+               expires is null ? null : DateTimeOffset.Parse(expires, CultureInfo.InvariantCulture)));
+         }
+         return alerts;
+      } catch (Exception exception) when (exception is not OperationCanceledException) {
+         logger.LogWarning(exception, "Fetching the weather warnings failed");
+         return [];
+      }
    }
 
    private static double? Number(JsonElement element, string name) =>

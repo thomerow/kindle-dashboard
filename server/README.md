@@ -29,13 +29,14 @@ The interface is described in [`API.md`](API.md).
 
 - **Data:** the notes, settings and a log of the Kindle's battery, in an SQLite database. A checked-off note is
   deleted after 12 hours.
-- **Weather:** current weather, today's lowest and highest temperature and the probability of rain for the next 24
-  hours from [Bright Sky](https://brightsky.dev)
+- **Weather:** current weather, today's lowest and highest temperature, the probability of rain for the next 24
+  hours and the warnings of the DWD for the place from [Bright Sky](https://brightsky.dev)
   (data of the Deutscher Wetterdienst, so it covers Germany and the regions around it), fetched every 30 minutes.
 - **Picture:** drawn with [SkiaSharp](https://github.com/mono/SkiaSharp) in landscape (1448 × 1072), with
   anti-aliasing and reduced to the 16 grey levels of the e-ink display. For the Kindle it is turned into the portrait
   orientation of its display, together with the tappable areas. It is only drawn again when its content changes.
-  The notes get the largest font size at which all of them fit.
+  The notes get the largest font size at which all of them fit. Sunrise and sunset are calculated from the place
+  and the date.
 - **Wake-up times:** the Kindle runs on battery and sleeps between updates. The server tells it when to wake up:
   every *n* minutes and not during the quiet hours.
 - **Taps:** the Kindle reports which area was tapped (check off a note, or back on), the server
@@ -55,6 +56,7 @@ src/Dashboard/Renderer.cs         drawing the picture (layout), turning it for t
 src/Dashboard/WeatherIcon.cs      weather icons as vector shapes
 src/Dashboard/Weather.cs          Bright Sky
 src/Dashboard/Schedule.cs         local time, wake-up times
+src/Dashboard/Sun.cs              sunrise and sunset
 src/Dashboard/Geo.cs              IP position, place search, names and time zones
 src/Dashboard/Fonts/              Noto Sans (SIL Open Font License, see OFL.txt)
 src/Dashboard/wwwroot/index.html  web page

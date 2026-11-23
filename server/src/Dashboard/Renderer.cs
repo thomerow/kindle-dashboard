@@ -11,6 +11,11 @@ namespace Dashboard;
 public sealed record Zone(string Id, int X, int Y, int Width, int Height);
 
 public sealed record NoteLine(long Id, string Text, bool Done);
+/// <summary>Sunrise and sunset, local time</summary>
+public sealed record SunLine(TimeOnly Rise, TimeOnly Set);
+/// <param name="Event">e.g. "Glätte"</param>
+/// <param name="When">e.g. "bis 10 Uhr", "ab morgen 6 Uhr"</param>
+public sealed record AlertLine(string Event, string When);
 
 /// <summary>Everything the picture shows. Two equal models give the same picture (apart from the time of drawing).</summary>
 /// <param name="Hour">Start of the current hour, where the rain chart begins</param>
@@ -20,6 +25,8 @@ public sealed record ScreenModel(
    string PlaceName,
    WeatherData? Weather,
    List<NoteLine> Notes,
+   SunLine? Sun,
+   List<AlertLine> Alerts,
    int? Battery,
    bool Charging);
 
@@ -203,6 +210,7 @@ public sealed class Renderer {
          }
          DrawRain(canvas, weather.Hours, model.Hour, zone, x, line + 50, right);
       }
+      DrawSunAndAlerts(canvas, model, x, right);
 
       // Foot of the column: battery, time of the picture, source of the weather
       if (model.Battery is { } battery)
@@ -250,6 +258,54 @@ public sealed class Renderer {
       }
       if (coming.Count == 0)
          Text(canvas, "keine Angabe", (x + right) / 2, chartTop + chartHeight / 2 - 10, 26, m_regular, s_grey, SKTextAlign.Center);
+   }
+
+   /// <summary>Below the rain chart: sunrise and sunset, then the warnings of the DWD, inverted.</summary>
+   private void DrawSunAndAlerts(SKCanvas canvas, ScreenModel model, float x, float right) {
+      const float sunTop = 686;
+      if (model.Sun is { } sun) {
+         SunIcon(canvas, x + 20, sunTop + 28, true);
+         Text(canvas, $"{sun.Rise:H:mm}", x + 52, sunTop + 36, 32, m_semiBold, s_black);
+         SunIcon(canvas, x + 20 + SideWidth / 2, sunTop + 28, false);
+         Text(canvas, $"{sun.Set:H:mm}", x + 52 + SideWidth / 2, sunTop + 36, 32, m_semiBold, s_black);
+      }
+
+      // At most two warnings fit above the battery, more are counted
+      const float boxHeight = 60;
+      const int maxAlerts = 2;
+      var y = sunTop + 70;
+      var shown = model.Alerts.Count > maxAlerts ? maxAlerts - 1 : model.Alerts.Count;
+      using var whenFont = Font(m_regular, 26);
+      foreach (var alert in model.Alerts.Take(shown)) {
+         using (var fill = Fill(s_black))
+            canvas.DrawRoundRect(SKRect.Create(x, y, SideWidth, boxHeight), 8, 8, fill);
+         var whenWidth = alert.When.Length == 0 ? 0 : whenFont.MeasureText(alert.When) + 16;
+         Text(canvas, Fit(alert.Event, SideWidth - 32 - whenWidth, 30, m_bold), x + 16, y + 41, 30, m_bold, SKColors.White);
+         Text(canvas, alert.When, right - 16, y + 40, 26, m_regular, SKColors.White, SKTextAlign.Right);
+         y += boxHeight + 10;
+      }
+      if (shown < model.Alerts.Count)
+         Text(canvas, $"+ {model.Alerts.Count - shown} weitere Warnungen", x, y + 30, 26, m_semiBold, s_black);
+   }
+
+   /// <summary>Half a sun on the horizon at (x, horizon), with a small arrow below: up for sunrise, down for sunset.</summary>
+   private static void SunIcon(SKCanvas canvas, float x, float horizon, bool rising) {
+      const float radius = 9;
+      using var stroke = Stroke(3);
+      canvas.DrawLine(x - 18, horizon, x + 18, horizon, stroke);
+      canvas.DrawArc(SKRect.Create(x - radius, horizon - radius, 2 * radius, 2 * radius), 180, 180, false, stroke);
+      foreach (var angle in new[] { 200f, 240f, 270f, 300f, 340f }) {
+         var radians = angle * MathF.PI / 180;
+         var (cos, sin) = (MathF.Cos(radians), MathF.Sin(radians));
+         canvas.DrawLine(x + cos * (radius + 4), horizon + sin * (radius + 4), x + cos * (radius + 9), horizon + sin * (radius + 9), stroke);
+      }
+      var (outer, inner) = rising ? (horizon + 15f, horizon + 8f) : (horizon + 8f, horizon + 15f);
+      using var builder = new SKPathBuilder();
+      builder.MoveTo(x - 6, outer);
+      builder.LineTo(x, inner);
+      builder.LineTo(x + 6, outer);
+      using var chevron = builder.Detach();
+      canvas.DrawPath(chevron, stroke);
    }
 
    // --- Small parts ---
