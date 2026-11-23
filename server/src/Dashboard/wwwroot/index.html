@@ -5,21 +5,29 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1b1b1a" media="(prefers-color-scheme: dark)">
-<title>Wandtafel</title>
+<title>Zettel</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"
       integrity="sha512-h9FcoyWjHcOcmEVkxOfTLnmZFWIH0iZhZT1H2TbOq55xssQGEJHEaIm+PgoUaZbRvQTNTluNOEfb1ZRy6D3BOw==" crossorigin="anonymous">
 <style>
 :root {
-   --bg: #f6f5f2; --card: #ffffff; --text: #1b1b1a; --muted: #6b6a66; --line: #e3e1dc;
-   --accent: #1b1b1a; --accent-text: #ffffff; --danger: #b3261e; --done: #9a9893;
+   --bg: #f3f1ec; --card: #ffffff; --text: #1b1b1a; --muted: #6b6a66; --line: #e3e1dc;
+   --accent: #1b1b1a; --accent-text: #ffffff; --danger: #b3261e;
+   /* The Post-it */
+   --note: #fff1a1; --note-ink: #2b2612; --note-done: #857c55; --note-line: rgba(43, 38, 18, 0.12);
+   --tape: rgba(255, 255, 255, 0.6);
    --radius: 14px; --gap: 12px;
    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
    color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
-   :root { --bg: #1b1b1a; --card: #262624; --text: #f1f0ec; --muted: #a3a19b; --line: #3a3936; --accent: #f1f0ec; --accent-text: #1b1b1a; --danger: #ff8a80; --done: #77756f; }
+   :root {
+      --bg: #1b1b1a; --card: #262624; --text: #f1f0ec; --muted: #a3a19b; --line: #3a3936;
+      --accent: #f1f0ec; --accent-text: #1b1b1a; --danger: #ff8a80;
+      --note: #4f4620; --note-ink: #fbf5d6; --note-done: #a89e76; --note-line: rgba(251, 245, 214, 0.14);
+      --tape: rgba(255, 255, 255, 0.14);
+   }
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
@@ -27,34 +35,56 @@ body { padding: 0 16px calc(88px + env(safe-area-inset-bottom)); max-width: 640p
 header { display: flex; align-items: center; justify-content: space-between; padding: 18px 0 8px; }
 h1 { font-size: 1.5rem; margin: 0; letter-spacing: -0.01em; }
 h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 24px 0 8px; }
-button, input, textarea { font: inherit; color: inherit; }
+button, input { font: inherit; color: inherit; }
 button { border: 0; border-radius: 10px; padding: 10px 14px; background: var(--accent); color: var(--accent-text); cursor: pointer; }
 button.ghost { background: transparent; color: var(--muted); padding: 8px 10px; }
 button.small { padding: 6px 10px; font-size: 0.9rem; }
 button:disabled { opacity: 0.5; }
-input, textarea { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--card); }
-textarea { resize: vertical; min-height: 70px; }
+input { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--card); }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
 .row { display: flex; gap: 8px; align-items: center; }
 .row > input { flex: 1; min-width: 0; }
 .stack { display: grid; gap: var(--gap); }
-form.add + .card { margin-top: var(--gap); }
 .hidden { display: none !important; }
 .muted { color: var(--muted); }
 .error { color: var(--danger); min-height: 1.2em; }
+
+/* --- Notes --- */
+form.add { margin: 12px 0 28px; }
+form.add input { font-size: 1.15rem; padding: 14px 16px; border-radius: 14px; }
+form.add button { flex: none; width: 54px; height: 54px; border-radius: 50%; padding: 0; font-size: 1.8rem; line-height: 1;
+   background: var(--note); color: var(--note-ink); box-shadow: 0 2px 6px -2px rgba(0, 0, 0, 0.35); }
+.note { position: relative; background: var(--note); color: var(--note-ink); padding: 22px 18px 18px; border-radius: 3px;
+   transform: rotate(-0.6deg);
+   box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08), 0 14px 28px -12px rgba(0, 0, 0, 0.35); }
+/* A strip of tape holds the note */
+.note::before { content: ""; position: absolute; top: -11px; left: 50%; width: 104px; height: 24px;
+   transform: translateX(-50%) rotate(2deg); background: var(--tape); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
 ul.items { list-style: none; margin: 0; padding: 0; }
-ul.items li { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+ul.items li { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--note-line); }
 ul.items li:last-child { border-bottom: 0; }
-ul.items .text { flex: 1; min-width: 0; overflow-wrap: anywhere; cursor: text; white-space: pre-wrap; }
-ul.items li.done .text { color: var(--done); text-decoration: line-through; }
-ul.items input[type=checkbox] { width: 24px; height: 24px; flex: none; accent-color: var(--accent); }
-.badge { font-size: 0.8rem; border: 1px solid var(--text); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
-.badge.overdue { background: var(--text); color: var(--bg); }
-.delete { color: var(--muted); background: transparent; padding: 6px 8px; font-size: 1.2rem; line-height: 1; }
+ul.items .text { flex: 1; min-width: 0; font-size: 1.35rem; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; cursor: text; }
+ul.items li.done .text { color: var(--note-done); text-decoration: line-through; text-decoration-thickness: 2px; }
+ul.items li.empty { justify-content: center; color: var(--note-done); font-size: 1.2rem; padding: 28px 0; border: 0; }
+ul.items input.edit { flex: 1; font-size: 1.35rem; font-weight: 600; padding: 4px 8px; background: transparent; color: var(--note-ink); border-color: var(--note-done); }
+/* Round check box, like on the Kindle */
+.check { appearance: none; -webkit-appearance: none; flex: none; width: 30px; height: 30px; margin: 0; border-radius: 50%;
+   border: 3px solid var(--note-ink); background: transparent; cursor: pointer; display: grid; place-content: center; }
+.check::after { content: ""; width: 11px; height: 6px; border: solid var(--note); border-width: 0 0 3px 3px;
+   transform: translateY(-2px) rotate(-45deg); opacity: 0; }
+.check:checked { background: var(--note-done); border-color: var(--note-done); }
+.check:checked::after { opacity: 1; }
+.check:focus-visible { outline: 2px solid var(--note-ink); outline-offset: 2px; }
+.delete { flex: none; color: var(--note-done); background: transparent; padding: 6px 8px; font-size: 1.5rem; line-height: 1; }
+#clearDone { margin-top: 18px; }
+
+/* --- Navigation --- */
 nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; background: var(--card); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
 nav button { flex: 1; max-width: 128px; background: transparent; color: var(--muted); border-radius: 0; padding: 12px 4px 14px; font-size: 0.8rem; display: grid; justify-items: center; gap: 2px; }
 nav button span { font-size: 1.3rem; }
 nav button.active { color: var(--text); font-weight: 600; }
+
+/* --- Kindle and place --- */
 #map { height: 320px; border-radius: var(--radius); border: 1px solid var(--line); z-index: 0; }
 .results { list-style: none; margin: 0; padding: 0; }
 .results li { padding: 10px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
@@ -79,7 +109,7 @@ label { display: grid; gap: 4px; font-size: 0.9rem; color: var(--muted); }
 <body>
 
 <header>
-   <h1>Wandtafel</h1>
+   <h1>Zettel</h1>
    <button id="logout" class="ghost hidden" type="button">Abmelden</button>
 </header>
 
@@ -93,40 +123,14 @@ label { display: grid; gap: 4px; font-size: 0.9rem; color: var(--muted); }
 </section>
 
 <main id="app" class="hidden">
-   <!-- Shopping list -->
-   <section data-tab="shopping">
-      <h2>Einkaufsliste</h2>
-      <form class="row add" data-kind="shopping">
-         <input name="text" placeholder="Was fehlt?" maxlength="200" autocomplete="off" required>
-         <button type="submit">+</button>
-      </form>
-      <div class="card"><ul class="items" id="list-shopping"></ul></div>
-      <p><button id="clearShopping" class="ghost small" type="button">Abgehakte entfernen</button></p>
-   </section>
-
-   <!-- Reminders -->
-   <section data-tab="reminder" class="hidden">
-      <h2>Erinnerungen</h2>
-      <form class="stack add" data-kind="reminder">
-         <input name="text" placeholder="Woran erinnern?" maxlength="200" autocomplete="off" required>
-         <div class="row">
-            <input name="date" type="date" required>
-            <input name="time" type="time" style="max-width: 9em">
-            <button type="submit">+</button>
-         </div>
-      </form>
-      <div class="card"><ul class="items" id="list-reminder"></ul></div>
-      <p><button id="clearReminders" class="ghost small" type="button">Erledigte entfernen</button></p>
-   </section>
-
    <!-- Notes -->
-   <section data-tab="note" class="hidden">
-      <h2>Notizen</h2>
-      <form class="stack add" data-kind="note">
-         <textarea name="text" placeholder="Notiz für die Wandtafel" maxlength="200" required></textarea>
-         <button type="submit">Notiz hinzufügen</button>
+   <section data-tab="notes">
+      <form class="row add" id="addForm">
+         <input name="text" placeholder="Was soll an die Tür?" maxlength="200" autocomplete="off" enterkeyhint="done" required>
+         <button type="submit" aria-label="Aufschreiben">+</button>
       </form>
-      <div class="card"><ul class="items" id="list-note"></ul></div>
+      <div class="note"><ul class="items" id="list"></ul></div>
+      <p><button id="clearDone" class="ghost small hidden" type="button">Abgehakte entfernen</button></p>
    </section>
 
    <!-- Kindle -->
@@ -144,10 +148,20 @@ label { display: grid; gap: 4px; font-size: 0.9rem; color: var(--muted); }
       </div>
       <h2>Akku, letzte 7 Tage</h2>
       <div class="card"><div class="chart" id="spark"><div class="chart-y" id="sparkY"></div><svg class="spark" id="sparkPlot" viewBox="0 0 100 100" preserveAspectRatio="none"></svg><div class="chart-x" id="sparkX"></div></div><div id="sparkEmpty" class="muted">Noch keine Werte</div></div>
+      <h2>Aufwachen (Akkubetrieb)</h2>
+      <div class="card stack">
+         <label>Alle … Minuten<input id="interval" type="number" min="5" max="1440" step="5"></label>
+         <div class="grid2">
+            <label>Ruhe ab<input id="quietFrom" type="time"></label>
+            <label>Ruhe bis<input id="quietTo" type="time"></label>
+         </div>
+         <div class="muted">In der Ruhezeit schläft der Kindle durch. Am Ladekabel zeigt er Änderungen sofort.</div>
+      </div>
+      <p class="row"><button id="saveWake" type="button">Speichern</button><span id="wakeStatus" class="muted"></span></p>
    </section>
 
-   <!-- Settings -->
-   <section data-tab="settings" class="hidden">
+   <!-- Place -->
+   <section data-tab="place" class="hidden">
       <h2>Ort fürs Wetter</h2>
       <div class="stack">
          <form id="searchForm" class="row">
@@ -163,25 +177,14 @@ label { display: grid; gap: 4px; font-size: 0.9rem; color: var(--muted); }
          <label>Name auf der Tafel<input id="placeName" maxlength="60"></label>
          <div class="muted" id="placeFacts"></div>
       </div>
-      <h2>Aufwachen des Kindle (Akkubetrieb)</h2>
-      <div class="card stack">
-         <label>Alle … Minuten<input id="interval" type="number" min="5" max="1440" step="5"></label>
-         <div class="grid2">
-            <label>Ruhe ab<input id="quietFrom" type="time"></label>
-            <label>Ruhe bis<input id="quietTo" type="time"></label>
-         </div>
-         <div class="muted">In der Ruhezeit schläft der Kindle durch. Fällige Erinnerungen mit Uhrzeit wecken ihn trotzdem.</div>
-      </div>
-      <p class="row"><button id="saveSettings" type="button">Speichern</button><span id="settingsStatus" class="muted"></span></p>
+      <p class="row"><button id="savePlace" type="button">Speichern</button><span id="placeStatus" class="muted"></span></p>
    </section>
 </main>
 
 <nav id="nav" class="hidden">
-   <button type="button" data-tab="shopping" class="active"><span>🛒</span>Einkauf</button>
-   <button type="button" data-tab="reminder"><span>⏰</span>Erinnern</button>
-   <button type="button" data-tab="note"><span>📝</span>Notizen</button>
+   <button type="button" data-tab="notes" class="active"><span>📝</span>Zettel</button>
    <button type="button" data-tab="kindle"><span>📟</span>Kindle</button>
-   <button type="button" data-tab="settings"><span>⚙️</span>Ort</button>
+   <button type="button" data-tab="place"><span>📍</span>Ort</button>
 </nav>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
@@ -246,21 +249,22 @@ $("logout").addEventListener("click", async () => {
 
 // --- Tabs ---
 
-let currentTab = "shopping";
+let currentTab = "notes";
 for (const button of document.querySelectorAll("nav button")) {
    button.addEventListener("click", () => openTab(button.dataset.tab));
 }
 
 function openTab(tab) {
+   if (!document.querySelector(`main section[data-tab="${tab}"]`)) tab = "notes";
    currentTab = tab;
    for (const button of document.querySelectorAll("nav button")) button.classList.toggle("active", button.dataset.tab === tab);
    for (const section of document.querySelectorAll("main section")) section.classList.toggle("hidden", section.dataset.tab !== tab);
    if (tab === "kindle") loadKindle();
-   if (tab === "settings") loadSettings();
+   if (tab === "place") loadPlace();
    try { localStorage.setItem("tab", tab); } catch { }
 }
 
-// --- Items ---
+// --- Notes ---
 
 async function loadItems() {
    try {
@@ -269,70 +273,47 @@ async function loadItems() {
    } catch { }
 }
 
-for (const form of document.querySelectorAll("form.add")) {
-   form.addEventListener("submit", async event => {
-      event.preventDefault();
-      const kind = form.dataset.kind;
-      const text = form.elements.text.value.trim();
-      if (!text) return;
-      let due = null;
-      if (kind === "reminder") {
-         due = form.elements.date.value;
-         if (form.elements.time.value) due += "T" + form.elements.time.value;
-      }
-      try {
-         await call("POST", "/items", { kind, text, due });
-         form.reset();
-         if (kind === "reminder") form.elements.date.value = today();
-         await loadItems();
-         form.elements.text.focus();
-      } catch (error) {
-         alert(error.message);
-      }
-   });
-}
+$("addForm").addEventListener("submit", async event => {
+   event.preventDefault();
+   const input = event.target.elements.text;
+   const text = input.value.trim();
+   if (!text) return;
+   try {
+      await call("POST", "/items", { text });
+      input.value = "";
+      await loadItems();
+      input.focus();
+   } catch (error) {
+      alert(error.message);
+   }
+});
 
+// Open notes in the order they were written, checked-off ones below, as on the Kindle
 function renderItems() {
-   renderList("shopping", items.filter(item => item.kind === "shopping")
-      .sort((a, b) => (a.done !== null) - (b.done !== null) || a.id - b.id), "Die Liste ist leer.");
-   renderList("reminder", items.filter(item => item.kind === "reminder")
-      .sort((a, b) => (a.done !== null) - (b.done !== null) || (a.due ?? "").localeCompare(b.due ?? "")), "Keine Erinnerungen.");
-   renderList("note", items.filter(item => item.kind === "note").sort((a, b) => b.id - a.id), "Keine Notizen.");
-}
-
-function renderList(kind, list, empty) {
-   const ul = $("list-" + kind);
+   const list = [...items].sort((a, b) => (a.done !== null) - (b.done !== null) || a.id - b.id);
+   const ul = $("list");
    ul.replaceChildren();
+   $("clearDone").classList.toggle("hidden", !list.some(item => item.done !== null));
    if (list.length === 0) {
       const li = document.createElement("li");
-      li.className = "muted";
-      li.textContent = empty;
+      li.className = "empty";
+      li.textContent = "Nichts zu tun";
       ul.append(li);
       return;
    }
    for (const item of list) {
       const li = document.createElement("li");
       li.classList.toggle("done", item.done !== null);
-      if (kind !== "note") {
-         const box = document.createElement("input");
-         box.type = "checkbox";
-         box.checked = item.done !== null;
-         box.setAttribute("aria-label", kind === "shopping" ? "Abhaken" : "Erledigt");
-         box.addEventListener("change", () => update(item.id, { done: box.checked }));
-         li.append(box);
-      }
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.className = "check";
+      box.checked = item.done !== null;
+      box.setAttribute("aria-label", "Abhaken");
+      box.addEventListener("change", () => update(item.id, { done: box.checked }));
       const text = document.createElement("span");
       text.className = "text";
       text.textContent = item.text;
       text.addEventListener("click", () => editText(item, text));
-      li.append(text);
-      if (kind === "reminder" && item.due) {
-         const badge = document.createElement("span");
-         badge.className = "badge";
-         badge.textContent = dueLabel(item.due);
-         badge.classList.toggle("overdue", item.done === null && dueDate(item.due) <= new Date());
-         li.append(badge);
-      }
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "delete";
@@ -342,14 +323,15 @@ function renderList(kind, list, empty) {
          await call("DELETE", "/items/" + item.id);
          await loadItems();
       });
-      li.append(remove);
+      li.append(box, text, remove);
       ul.append(li);
    }
 }
 
 // Tapping a text turns it into an input field, Enter or leaving it saves
 function editText(item, span) {
-   const input = document.createElement(item.kind === "note" ? "textarea" : "input");
+   const input = document.createElement("input");
+   input.className = "edit";
    input.value = item.text;
    input.maxLength = 200;
    span.replaceWith(input);
@@ -364,7 +346,7 @@ function editText(item, span) {
    };
    input.addEventListener("blur", () => finish(true));
    input.addEventListener("keydown", event => {
-      if (event.key === "Enter" && (item.kind !== "note" || event.ctrlKey)) { event.preventDefault(); finish(true); }
+      if (event.key === "Enter") { event.preventDefault(); finish(true); }
       if (event.key === "Escape") finish(false);
    });
 }
@@ -378,27 +360,7 @@ async function update(id, patch) {
    await loadItems();
 }
 
-$("clearShopping").addEventListener("click", async () => { await call("POST", "/items/delete-done?kind=shopping"); await loadItems(); });
-$("clearReminders").addEventListener("click", async () => { await call("POST", "/items/delete-done?kind=reminder"); await loadItems(); });
-
-function today() {
-   const now = new Date();
-   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
-// "2026-10-31" is due at the end of that day, "2026-10-31T18:00" at that time
-function dueDate(due) {
-   return due.includes("T") ? new Date(due) : new Date(due + "T23:59:59");
-}
-
-function dueLabel(due) {
-   const date = new Date(due.slice(0, 10) + "T12:00");
-   const days = Math.round((date - new Date(today() + "T12:00")) / 86400000);
-   let label = days === 0 ? "heute" : days === 1 ? "morgen" : days === -1 ? "gestern"
-      : date.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
-   if (due.includes("T")) label += " " + due.slice(11, 16);
-   return label;
-}
+$("clearDone").addEventListener("click", async () => { await call("POST", "/items/delete-done"); await loadItems(); });
 
 // --- Kindle ---
 
@@ -412,6 +374,10 @@ async function loadKindle() {
       $("nextWake").textContent = device.nextWakeAt ? clock(device.nextWakeAt) : "–";
       $("rendered").textContent = clock(state.frame.renderedAt);
       drawBattery(await call("GET", "/battery?days=7"));
+      await loadSettings();
+      $("interval").value = settings.intervalMinutes;
+      $("quietFrom").value = settings.quietFrom;
+      $("quietTo").value = settings.quietTo;
    } catch { }
 }
 
@@ -461,26 +427,56 @@ function relative(iso) {
    return clock(iso);
 }
 
-// --- Settings with map ---
+$("saveWake").addEventListener("click", () => saveSettings({
+   intervalMinutes: Number($("interval").value),
+   quietFrom: $("quietFrom").value || "00:00",
+   quietTo: $("quietTo").value || "00:00"
+}, $("wakeStatus")));
+
+// --- Settings: the Kindle tab changes the wake-up times, the place tab the place ---
 
 async function loadSettings() {
-   settings = await call("GET", "/settings");
+   if (!settings) settings = await call("GET", "/settings");
+}
+
+async function saveSettings(changes, status) {
+   try {
+      await loadSettings();
+      settings = await call("PUT", "/settings", { ...settings, ...changes });
+      status.textContent = "Gespeichert";
+      return true;
+   } catch (error) {
+      status.textContent = error.message;
+      return false;
+   }
+}
+
+// --- Place with map ---
+
+// The chosen place, saved only with the button
+let place = null;
+
+async function loadPlace() {
+   try {
+      await loadSettings();
+   } catch {
+      return;
+   }
+   place = { latitude: settings.latitude, longitude: settings.longitude, timeZone: settings.timeZone };
    $("placeName").value = settings.placeName;
-   $("interval").value = settings.intervalMinutes;
-   $("quietFrom").value = settings.quietFrom;
-   $("quietTo").value = settings.quietTo;
+   $("placeStatus").textContent = "";
    showFacts();
    if (!map) {
-      map = L.map("map").setView([settings.latitude, settings.longitude], 11);
+      map = L.map("map").setView([place.latitude, place.longitude], 11);
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
          maxZoom: 19,
          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
       }).addTo(map);
-      marker = L.marker([settings.latitude, settings.longitude], { draggable: true }).addTo(map);
+      marker = L.marker([place.latitude, place.longitude], { draggable: true }).addTo(map);
       marker.on("dragend", () => choose(marker.getLatLng().lat, marker.getLatLng().lng));
       map.on("click", event => choose(event.latlng.lat, event.latlng.lng));
    } else {
-      setMarker(settings.latitude, settings.longitude);
+      setMarker(place.latitude, place.longitude);
    }
    setTimeout(() => map.invalidateSize(), 50);
 
@@ -502,21 +498,21 @@ function setMarker(lat, lon, zoom) {
 
 async function choose(lat, lon, zoom) {
    setMarker(lat, lon, zoom);
-   settings = { ...settings, latitude: round(lat), longitude: round(lon) };
-   $("settingsStatus").textContent = "Ort wird ermittelt …";
+   place = { ...place, latitude: round(lat), longitude: round(lon) };
+   $("placeStatus").textContent = "Ort wird ermittelt …";
    try {
-      const place = await call("GET", `/geo/place?lat=${lat}&lon=${lon}`);
-      settings.timeZone = place.timeZone;
-      $("placeName").value = place.name;
-      $("settingsStatus").textContent = "Noch nicht gespeichert";
+      const found = await call("GET", `/geo/place?lat=${lat}&lon=${lon}`);
+      place.timeZone = found.timeZone;
+      $("placeName").value = found.name;
+      $("placeStatus").textContent = "Noch nicht gespeichert";
    } catch {
-      $("settingsStatus").textContent = "Ortsname nicht gefunden, bitte selbst eintragen";
+      $("placeStatus").textContent = "Ortsname nicht gefunden, bitte selbst eintragen";
    }
    showFacts();
 }
 
 function showFacts() {
-   $("placeFacts").textContent = `${settings.latitude.toFixed(4)}, ${settings.longitude.toFixed(4)} · Zeitzone ${settings.timeZone}`;
+   $("placeFacts").textContent = `${place.latitude.toFixed(4)}, ${place.longitude.toFixed(4)} · Zeitzone ${place.timeZone}`;
 }
 
 function round(value) { return Math.round(value * 10000) / 10000; }
@@ -539,28 +535,16 @@ $("searchForm").addEventListener("submit", async event => {
 
 $("locate").addEventListener("click", () => {
    if (!navigator.geolocation) return;
-   $("settingsStatus").textContent = "Standort wird abgefragt …";
+   $("placeStatus").textContent = "Standort wird abgefragt …";
    navigator.geolocation.getCurrentPosition(
       position => choose(position.coords.latitude, position.coords.longitude, 13),
-      () => { $("settingsStatus").textContent = "Standort nicht freigegeben"; },
+      () => { $("placeStatus").textContent = "Standort nicht freigegeben"; },
       { enableHighAccuracy: false, timeout: 15000 });
 });
 
-$("saveSettings").addEventListener("click", async () => {
-   const updated = {
-      ...settings,
-      placeName: $("placeName").value.trim() || settings.placeName,
-      intervalMinutes: Number($("interval").value),
-      quietFrom: $("quietFrom").value || "00:00",
-      quietTo: $("quietTo").value || "00:00"
-   };
-   try {
-      settings = await call("PUT", "/settings", updated);
-      $("settingsStatus").textContent = "Gespeichert";
+$("savePlace").addEventListener("click", async () => {
+   if (await saveSettings({ ...place, placeName: $("placeName").value.trim() || settings.placeName }, $("placeStatus")))
       $("placeHint").textContent = "Karte antippen oder Markierung ziehen";
-   } catch (error) {
-      $("settingsStatus").textContent = error.message;
-   }
 });
 
 // --- Start ---
@@ -573,7 +557,6 @@ document.addEventListener("visibilitychange", () => {
 });
 
 (async () => {
-   document.querySelector('form[data-kind=reminder]').elements.date.value = today();
    const session = await (await fetch(api + "/session")).json();
    if (!session.loggedIn) {
       showLogin();
