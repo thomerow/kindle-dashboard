@@ -371,18 +371,23 @@ public sealed class Renderer {
    /// Which typeface draws a character as the reader sees it (a grapheme, e.g. "❤️" or "👍🏽"), and what of it is drawn.
    /// An emoji is one that asks for emoji presentation (U+FE0F), lies in the emoji blocks from U+1F000 on, or is
    /// missing from the text font. Selectors, joiners and skin tones are left out: without shaping a sequence does not
-   /// combine anyway, and the plain emoji reads better than its parts.
+   /// combine anyway, and the plain emoji reads better than its parts. Flags are left out entirely, Noto Emoji has none
+   /// and their two letters would stand there on their own.
    /// </summary>
    private (SKTypeface Typeface, string Text) Classify(string element, SKTypeface typeface) {
       var kept = new StringBuilder();
       var presentation = false;
       int? first = null;
       foreach (var rune in element.EnumerateRunes()) {
+         // A regional flag (black flag and tags) goes as a whole, not only its tags
+         if (rune.Value is >= 0xE0020 and <= 0xE007F)
+            return (typeface, "");
          switch (rune.Value) {
             case 0xFE0F:
                presentation = true;
                continue;
-            case 0xFE0E or 0x200D or >= 0x1F3FB and <= 0x1F3FF:
+            // Text presentation, joiner, skin tones, the letters of flags
+            case 0xFE0E or 0x200D or >= 0x1F3FB and <= 0x1F3FF or >= 0x1F1E6 and <= 0x1F1FF:
                continue;
          }
          first ??= rune.Value;
@@ -448,7 +453,8 @@ public sealed class Renderer {
       var lines = new List<string>();
       foreach (var paragraph in text.Split('\n')) {
          var line = "";
-         foreach (var word in paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries)) {
+         // Words of which nothing is drawn (a flag on its own) go with their space
+         foreach (var word in paragraph.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(word => Runs(word, typeface).Count > 0)) {
             var candidate = line.Length == 0 ? word : line + " " + word;
             if (Measure(candidate, size, typeface) <= width || line.Length == 0) {
                line = candidate;

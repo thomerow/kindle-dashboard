@@ -36,7 +36,7 @@ The interface is described in [`API.md`](API.md).
   anti-aliasing and reduced to the 16 grey levels of the e-ink display. For the Kindle it is turned into the portrait
   orientation of its display, together with the tappable areas. It is only drawn again when its content changes.
   The notes get the largest font size at which all of them fit. Emojis come from the black and white Noto Emoji,
-  without skin tones; sequences such as families or flags show their parts. Sunrise and sunset are calculated from the place
+  without skin tones and without flags; sequences such as families show their parts. Sunrise and sunset are calculated from the place
   and the date.
 - **Wake-up times:** the Kindle runs on battery and sleeps between updates. The server tells it when to wake up:
   every *n* minutes and not during the quiet hours.
