@@ -95,7 +95,8 @@ ul.items.sorting li.dragging.dropping { transition: transform 0.18s ease, scale 
 /* --- Navigation --- */
 nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; background: var(--card); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
 nav button { flex: 1; max-width: 128px; background: transparent; color: var(--muted); border-radius: 0; padding: 12px 4px 14px; font-size: 0.8rem; display: grid; justify-items: center; gap: 2px; }
-nav button span { font-size: 1.3rem; }
+nav button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+nav button.active svg { stroke-width: 2.25; }
 nav button.active { color: var(--text); font-weight: 600; }
 
 /* --- Kindle and place --- */
@@ -199,9 +200,9 @@ input[type=time]::-webkit-date-and-time-value { text-align: left; }
 </main>
 
 <nav id="nav" class="hidden">
-   <button type="button" data-tab="notes" class="active"><span>📝</span>Zettel</button>
-   <button type="button" data-tab="kindle"><span>📟</span>Kindle</button>
-   <button type="button" data-tab="place"><span>📍</span>Ort</button>
+   <button type="button" data-tab="notes" class="active"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/></svg>Zettel</button>
+   <button type="button" data-tab="kindle"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2.5"/><path d="M6.5 9h7M6.5 12h11M6.5 15h5"/></svg>Kindle</button>
+   <button type="button" data-tab="place"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 5-5.5 10.2-7.4 11.8a1 1 0 0 1-1.2 0C9.5 20.2 4 15 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg>Ort</button>
 </nav>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"
