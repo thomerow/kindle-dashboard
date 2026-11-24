@@ -370,15 +370,18 @@ public sealed class Renderer {
    /// <summary>
    /// Which typeface draws a character as the reader sees it (a grapheme, e.g. "❤️" or "👍🏽"), and what of it is drawn.
    /// An emoji is one that asks for emoji presentation (U+FE0F), lies in the emoji blocks from U+1F000 on, or is
-   /// missing from the text font. Selectors, joiners and skin tones are left out: without shaping a sequence does not
-   /// combine anyway, and the plain emoji reads better than its parts. Flags are left out entirely, Noto Emoji has none
-   /// and their two letters would stand there on their own.
+   /// missing from the text font. Selectors, joiners, skin tones and the colors of animals ("🐈‍⬛") are left out:
+   /// without shaping a sequence does not combine anyway, and the plain emoji reads better than its parts. Flags are
+   /// left out entirely, Noto Emoji has none and their two letters would stand there on their own.
    /// </summary>
    private (SKTypeface Typeface, string Text) Classify(string element, SKTypeface typeface) {
       var kept = new StringBuilder();
       var presentation = false;
       int? first = null;
+      var joined = false;
       foreach (var rune in element.EnumerateRunes()) {
+         var afterJoiner = joined;
+         joined = rune.Value == 0x200D;
          // A regional flag (black flag and tags) goes as a whole, not only its tags
          if (rune.Value is >= 0xE0020 and <= 0xE007F)
             return (typeface, "");
@@ -388,6 +391,9 @@ public sealed class Renderer {
                continue;
             // Text presentation, joiner, skin tones, the letters of flags
             case 0xFE0E or 0x200D or >= 0x1F3FB and <= 0x1F3FF or >= 0x1F1E6 and <= 0x1F1FF:
+               continue;
+            // A color joined to an animal: black and white squares, colored circles and squares
+            case 0x2B1B or 0x2B1C or >= 0x1F7E0 and <= 0x1F7EB when afterJoiner:
                continue;
          }
          first ??= rune.Value;
