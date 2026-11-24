@@ -158,6 +158,13 @@ web.MapPatch("/items/{id:long}", (long id, ItemPatch patch, Store store) => {
 
 web.MapDelete("/items/{id:long}", (long id, Store store) => store.DeleteItem(id) ? Results.NoContent() : Results.NotFound());
 
+web.MapPut("/items/order", (ItemOrder order, Store store) => {
+   if (order.Ids is null)
+      return Results.BadRequest(new { error = "Reihenfolge fehlt" });
+   store.Reorder(order.Ids);
+   return Results.Ok(store.GetItems());
+});
+
 web.MapPost("/items/delete-done", (Store store) => new { deleted = store.DeleteDone() });
 
 web.MapGet("/settings", (Store store) => store.GetSettings());
@@ -305,6 +312,9 @@ sealed record LoginRequest(string? Password);
 sealed record NewItem(string? Text);
 /// <summary>Null leaves a field as it is.</summary>
 sealed record ItemPatch(string? Text, bool? Done);
+
+/// <summary>Ids of the notes in their new order</summary>
+sealed record ItemOrder(List<long>? Ids);
 
 /// <summary>Caps the number of requests that are held open at the same time.</summary>
 sealed class ConnectionLimit(int max) {

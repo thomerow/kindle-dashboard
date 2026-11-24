@@ -61,7 +61,8 @@ form.add button { flex: none; width: 54px; height: 54px; border-radius: 50%; pad
 .note::before { content: ""; position: absolute; top: -11px; left: 50%; width: 104px; height: 24px;
    transform: translateX(-50%) rotate(2deg); background: var(--tape); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
 ul.items { list-style: none; margin: 0; padding: 0; }
-ul.items li { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--note-line); }
+ul.items li { position: relative; display: flex; align-items: center; gap: 12px; margin: 0 -10px; padding: 12px 10px 12px 4px;
+   border-bottom: 1px solid var(--note-line); border-radius: 6px; background: var(--note); }
 ul.items li:last-child { border-bottom: 0; }
 ul.items .text { flex: 1; min-width: 0; font-size: 1.35rem; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; cursor: text; }
 ul.items li.done .text { color: var(--note-done); text-decoration: line-through; text-decoration-thickness: 2px; }
@@ -77,6 +78,19 @@ ul.items input.edit { flex: 1; font-size: 1.35rem; font-weight: 600; padding: 4p
 .check:focus-visible { outline: 2px solid var(--note-ink); outline-offset: 2px; }
 .delete { flex: none; color: var(--note-done); background: transparent; padding: 6px 8px; font-size: 1.5rem; line-height: 1; }
 #clearDone { margin-top: 18px; }
+/* Handle for moving a note: hold it, then drag */
+.grip { flex: none; width: 30px; height: 44px; margin: -8px -8px -8px 0; padding: 0; background: transparent; border-radius: 6px;
+   display: grid; place-content: center; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+   -webkit-touch-callout: none; }
+.grip::before { content: ""; width: 10px; height: 16px; background: radial-gradient(circle, var(--note-done) 1.7px, transparent 2.2px) 0 0 / 5px 5.33px; }
+.grip.idle { visibility: hidden; }
+.grip:focus-visible { outline: 2px solid var(--note-ink); }
+ul.items li.pressing { background: color-mix(in srgb, var(--note) 86%, var(--note-ink)); transition: background 0.35s; }
+ul.items li.pressing .grip::before, ul.items li.dragging .grip::before { background-image: radial-gradient(circle, var(--note-ink) 1.7px, transparent 2.2px); }
+ul.items.sorting li { transition: transform 0.18s ease; }
+ul.items.sorting li.dragging { transition: none; z-index: 2; scale: 1.03; cursor: grabbing; border-bottom-color: transparent;
+   box-shadow: 0 12px 26px -10px rgba(0, 0, 0, 0.5); }
+ul.items.sorting li.dragging.dropping { transition: transform 0.18s ease, scale 0.18s ease; scale: 1; }
 
 /* --- Navigation --- */
 nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; background: var(--card); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
@@ -271,7 +285,10 @@ function openTab(tab) {
 
 async function loadItems() {
    try {
-      items = await call("GET", "/items");
+      const loaded = await call("GET", "/items");
+      // Not while a note is being moved, that would pull it from under the finger
+      if (drag) return;
+      items = loaded;
       renderItems();
    } catch { }
 }
@@ -291,9 +308,10 @@ $("addForm").addEventListener("submit", async event => {
    }
 });
 
-// Open notes in the order they were written, checked-off ones below, as on the Kindle
+// Open notes in their order, checked-off ones below, as on the Kindle
 function renderItems() {
-   const list = [...items].sort((a, b) => (a.done !== null) - (b.done !== null) || a.id - b.id);
+   const list = [...items].sort((a, b) => (a.done !== null) - (b.done !== null));
+   const open = list.filter(item => item.done === null).length;
    const ul = $("list");
    ul.replaceChildren();
    $("clearDone").classList.toggle("hidden", !list.some(item => item.done !== null));
@@ -306,7 +324,19 @@ function renderItems() {
    }
    for (const item of list) {
       const li = document.createElement("li");
+      li.dataset.id = item.id;
       li.classList.toggle("done", item.done !== null);
+      // Only open notes are moved, and only when there is more than one
+      const grip = document.createElement("button");
+      grip.type = "button";
+      grip.className = "grip";
+      grip.setAttribute("aria-label", "Verschieben (halten und ziehen, oder Pfeiltasten)");
+      if (item.done !== null || open < 2) {
+         grip.classList.add("idle");
+         grip.tabIndex = -1;
+      } else {
+         attachGrip(grip, li);
+      }
       const box = document.createElement("input");
       box.type = "checkbox";
       box.className = "check";
@@ -326,7 +356,7 @@ function renderItems() {
          await call("DELETE", "/items/" + item.id);
          await loadItems();
       });
-      li.append(box, text, remove);
+      li.append(grip, box, text, remove);
       ul.append(li);
    }
 }
@@ -352,6 +382,131 @@ function editText(item, span) {
       if (event.key === "Enter") { event.preventDefault(); finish(true); }
       if (event.key === "Escape") finish(false);
    });
+}
+
+// --- Moving notes ---
+// Holding the handle lifts the note, it then follows the finger (or mouse) and the others make room. Letting go puts it
+// there. Moving away before the hold is over does nothing.
+
+let drag = null;
+
+function attachGrip(grip, li) {
+   let hold = null;
+   const cancelHold = () => {
+      if (!hold) return;
+      clearTimeout(hold.timer);
+      hold = null;
+      li.classList.remove("pressing");
+   };
+   grip.addEventListener("pointerdown", event => {
+      if (event.button !== 0 || drag) return;
+      event.preventDefault();
+      grip.setPointerCapture(event.pointerId);
+      const x = event.clientX, y = event.clientY;
+      li.classList.add("pressing");
+      hold = { x, y, timer: setTimeout(() => { hold = null; startDrag(li, y); }, event.pointerType === "mouse" ? 150 : 350) };
+   });
+   grip.addEventListener("pointermove", event => {
+      if (hold && Math.hypot(event.clientX - hold.x, event.clientY - hold.y) > 10) cancelHold();
+      if (drag?.li === li) drag.y = event.clientY;
+   });
+   grip.addEventListener("pointerup", () => { cancelHold(); if (drag?.li === li) endDrag(); });
+   grip.addEventListener("pointercancel", () => { cancelHold(); if (drag?.li === li) endDrag(true); });
+   grip.addEventListener("contextmenu", event => event.preventDefault());
+   grip.addEventListener("keydown", event => {
+      const step = { ArrowUp: -1, ArrowDown: 1 }[event.key];
+      if (!step) return;
+      event.preventDefault();
+      const ids = openIds();
+      const from = ids.indexOf(Number(li.dataset.id));
+      const to = from + step;
+      if (to < 0 || to >= ids.length) return;
+      ids.splice(to, 0, ...ids.splice(from, 1));
+      saveOrder(ids);
+      document.querySelector(`#list li[data-id="${li.dataset.id}"] .grip`)?.focus();
+   });
+}
+
+function openIds() {
+   return [...$("list").children].filter(li => !li.classList.contains("done")).map(li => Number(li.dataset.id));
+}
+
+function startDrag(li, y) {
+   const ul = $("list");
+   const group = [...ul.children].filter(other => !other.classList.contains("done"));
+   const slots = group.map(element => {
+      const rect = element.getBoundingClientRect();
+      return { element, top: rect.top + scrollY, height: rect.height };
+   });
+   const from = group.indexOf(li);
+   drag = { li, slots, from, to: from, y, startY: y + scrollY, frame: 0 };
+   li.classList.remove("pressing");
+   li.classList.add("dragging");
+   ul.classList.add("sorting");
+   navigator.vibrate?.(12);
+   tick();
+}
+
+// Every frame: scroll near the edges of the screen, then let the note follow and the others make room
+function tick() {
+   const edge = 80;
+   const bottom = innerHeight - $("nav").offsetHeight;
+   if (drag.y < edge) scrollBy(0, -Math.ceil((edge - drag.y) / 6));
+   else if (drag.y > bottom - edge) scrollBy(0, Math.ceil((drag.y - bottom + edge) / 6));
+
+   const { slots, from } = drag;
+   const own = slots[from];
+   const last = slots.at(-1);
+   const top = Math.min(Math.max(own.top + drag.y + scrollY - drag.startY, slots[0].top), last.top + last.height - own.height);
+   const center = top + own.height / 2;
+   let to = from;
+   slots.forEach((slot, i) => {
+      const middle = slot.top + slot.height / 2;
+      if (i > from && center > middle) to++;
+      if (i < from && center < middle) to--;
+   });
+   drag.to = to;
+   // The others move by the space the note takes, including the line below it
+   const step = from + 1 < slots.length ? slots[from + 1].top - own.top : own.top - slots[from - 1].top;
+   slots.forEach((slot, i) => {
+      if (i === from) return;
+      const shift = i > from && i <= to ? -step : i < from && i >= to ? step : 0;
+      slot.element.style.transform = shift ? `translateY(${shift}px)` : "";
+   });
+   drag.li.style.transform = `translateY(${top - own.top}px)`;
+   drag.frame = requestAnimationFrame(tick);
+}
+
+function endDrag(cancelled = false) {
+   cancelAnimationFrame(drag.frame);
+   const { li, slots, from } = drag;
+   const to = cancelled ? from : drag.to;
+   const own = slots[from];
+   const target = to > from ? slots[to].top + slots[to].height - own.height - own.top : slots[to].top - own.top;
+   if (cancelled) slots.forEach(slot => slot.element.style.transform = "");
+   li.classList.add("dropping");
+   li.style.transform = `translateY(${target}px)`;
+   const ids = slots.map(slot => Number(slot.element.dataset.id));
+   ids.splice(to, 0, ...ids.splice(from, 1));
+   setTimeout(() => {
+      drag = null;
+      $("list").classList.remove("sorting");
+      if (to === from) renderItems();
+      else saveOrder(ids);
+   }, 180);
+}
+
+// Shows the new order at once and saves it; on a failure the list comes back from the server
+async function saveOrder(ids) {
+   const rank = id => { const index = ids.indexOf(id); return index < 0 ? ids.length : index; };
+   items.sort((a, b) => rank(a.id) - rank(b.id));
+   renderItems();
+   try {
+      items = await call("PUT", "/items/order", { ids });
+   } catch (error) {
+      alert(error.message);
+      await loadItems();
+   }
 }
 
 async function update(id, patch) {

@@ -148,10 +148,9 @@ public sealed class Screen : IHostedService, IDisposable {
    }
 
    private ScreenModel BuildModel(Settings settings, DateTime now) {
-      // Open notes in the order they were written, checked-off ones below
+      // Open notes in their order on the list, checked-off ones below
       var notes = m_store.GetItems()
          .OrderBy(item => item.Done is not null)
-         .ThenBy(item => item.Id)
          .Select(item => new NoteLine(item.Id, item.Text, item.Done is not null))
          .ToList();
 

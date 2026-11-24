@@ -27,8 +27,8 @@ kept up to date from anywhere with a phone. Notes can be checked off right on th
 - **The Kindle runs on battery.** It sleeps between updates (every 30 minutes by default, not at night) with the light
   off. A press on the power button turns on the light and takes taps for a minute.
   On the charger it stays awake and updates within seconds.
-- **The phone** uses a small web page behind a password: the notes on a yellow Post-it, the place of the weather on an
-  OpenStreetMap map, a preview of the picture and the Kindle's battery.
+- **The phone** uses a small web page behind a password: the notes on a yellow Post-it (hold the handle of a note to
+  move it), the place of the weather on an OpenStreetMap map, a preview of the picture and the Kindle's battery.
 
 ## What you need
 

@@ -54,7 +54,8 @@ public sealed class Store {
             text    TEXT NOT NULL,
             created TEXT NOT NULL,
             due     TEXT NULL,
-            done    TEXT NULL
+            done    TEXT NULL,
+            position INTEGER NULL
          );
          CREATE TABLE IF NOT EXISTS kv (
             key   TEXT PRIMARY KEY,
@@ -66,6 +67,14 @@ public sealed class Store {
             charging INTEGER NOT NULL
          );
          """);
+      // The order of the notes came later: older databases get the column, and notes without a place (also those
+      // written by an older version) are sorted in by their id, i.e. in the order they were written.
+      using (var columns = connection.CreateCommand()) {
+         columns.CommandText = "SELECT COUNT(*) FROM pragma_table_info('items') WHERE name = 'position'";
+         if ((long)columns.ExecuteScalar()! == 0)
+            Execute(connection, "ALTER TABLE items ADD COLUMN position INTEGER NULL");
+      }
+      Execute(connection, "UPDATE items SET position = id WHERE position IS NULL");
    }
 
    /// <summary>Goes up with every change, so that callers can tell whether something changed.</summary>
@@ -73,10 +82,11 @@ public sealed class Store {
 
    // --- Items ---
 
+   /// <summary>All notes in their order on the list.</summary>
    public List<Item> GetItems() {
       using var connection = Open();
       using var command = connection.CreateCommand();
-      command.CommandText = "SELECT id, text, created, done FROM items ORDER BY id";
+      command.CommandText = "SELECT id, text, created, done FROM items ORDER BY position, id";
       using var reader = command.ExecuteReader();
       var items = new List<Item>();
       while (reader.Read()) {
@@ -96,7 +106,12 @@ public sealed class Store {
       long id;
       using (var connection = Open()) {
          using var command = connection.CreateCommand();
-         command.CommandText = "INSERT INTO items (kind, text, created) VALUES ($kind, $text, $created) RETURNING id";
+         // New notes at the end of the list
+         command.CommandText = """
+            INSERT INTO items (kind, text, created, position)
+            VALUES ($kind, $text, $created, (SELECT COALESCE(MAX(position), 0) + 1 FROM items))
+            RETURNING id
+            """;
          command.Parameters.AddWithValue("$kind", Kind);
          command.Parameters.AddWithValue("$text", text);
          command.Parameters.AddWithValue("$created", created.ToString("O"));
@@ -144,6 +159,34 @@ public sealed class Store {
       if (count > 0)
          OnChanged();
       return count > 0;
+   }
+
+   /// <summary>
+   /// Puts the notes into a new order: first the given ones, in this order, then all others as they were. Unknown ids
+   /// are ignored.
+   /// </summary>
+   public void Reorder(IReadOnlyList<long> ids) {
+      var current = GetItems().Select(item => item.Id).ToList();
+      var known = current.ToHashSet();
+      var order = ids.Where(known.Contains).Distinct().ToList();
+      order.AddRange(current.Except(order));
+      if (order.SequenceEqual(current))
+         return;
+      using (var connection = Open()) {
+         using var transaction = connection.BeginTransaction();
+         using var command = connection.CreateCommand();
+         command.Transaction = transaction;
+         command.CommandText = "UPDATE items SET position = $position WHERE id = $id";
+         var position = command.Parameters.Add("$position", SqliteType.Integer);
+         var id = command.Parameters.Add("$id", SqliteType.Integer);
+         for (var i = 0; i < order.Count; i++) {
+            position.Value = i + 1;
+            id.Value = order[i];
+            command.ExecuteNonQuery();
+         }
+         transaction.Commit();
+      }
+      OnChanged();
    }
 
    /// <summary>Deletes checked-off items, optionally only those checked off before a point in time.</summary>

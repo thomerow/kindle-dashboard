@@ -48,12 +48,13 @@ A note on the list, like a Post-it on the door.
 | `created` | ISO 8601, UTC | |
 | `done` | ISO 8601 \| null | when the note was checked off |
 
-What the picture shows: open notes in the order they were written, then checked-off ones (struck through), in the
+What the picture shows: open notes in their order on the list, then checked-off ones (struck through), in the
 largest font size at which all of them fit (at most three lines each). Checked-off notes are deleted automatically
 after 12 hours.
 
 The database keeps the columns `kind` and `due` of an earlier version with shopping list, notes and reminders. Items of
-those kinds show up as notes; new ones get the kind `todo`.
+those kinds show up as notes; new ones get the kind `todo`. The column `position` (the order on the list) is added at start
+when it is missing; notes without one are sorted in by their id.
 
 ### Settings
 
@@ -97,7 +98,7 @@ Removes the cookie, `204`.
 
 ### `GET /api/items`
 
-All items, ordered by `id`.
+All items in their order on the list (new ones at the end).
 
 ### `POST /api/items`
 
@@ -111,6 +112,11 @@ mark. Answers the changed item, `404` if there is none with this id.
 ### `DELETE /api/items/{id}`
 
 `204`, or `404`.
+
+### `PUT /api/items/order`
+
+Body `{"ids": [3, 1, 2]}`: these items in this order at the top of the list, all others after them as they were.
+Unknown ids are ignored. Answers all items in the new order, `400` without `ids`.
 
 ### `POST /api/items/delete-done`
 
