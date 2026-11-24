@@ -458,12 +458,13 @@ function tick() {
    const own = slots[from];
    const last = slots.at(-1);
    const top = Math.min(Math.max(own.top + drag.y + scrollY - drag.startY, slots[0].top), last.top + last.height - own.height);
-   const center = top + own.height / 2;
+   // A note passes another when its upper edge (moving up) or lower edge (moving down) crosses the other's middle, so
+   // that a tall note also gets past a short one at the ends of the list
    let to = from;
    slots.forEach((slot, i) => {
       const middle = slot.top + slot.height / 2;
-      if (i > from && center > middle) to++;
-      if (i < from && center < middle) to--;
+      if (i > from && top + own.height > middle) to++;
+      if (i < from && top < middle) to--;
    });
    drag.to = to;
    // The others move by the space the note takes, including the line below it
