@@ -65,6 +65,8 @@ public sealed class Renderer {
    private static readonly float[] s_noteSizes = [104, 92, 80, 68, 60];
    private const int MaxLinesPerNote = 3;
    private const float LineSpacing = 1.2f;
+   /// <summary>Space added between notes when there is room, relative to the font size</summary>
+   private const float ExtraGap = 0.25f;
    /// <summary>Rain chart: one bar per hour, starting with the current one</summary>
    private const int ChartHours = 24;
 
@@ -138,6 +140,8 @@ public sealed class Renderer {
          blocks = blocks.Take(shown).ToList();
       }
 
+      // Few notes leave a lot of room below them, they then get a little more space between them
+      var gap = more > 0 ? 0 : Math.Min((available - blocks.Sum(block => block.Height)) / blocks.Count, size * ExtraGap);
       var radius = size * 0.3f;
       var textX = TextX(size);
       var y = Margin;
@@ -160,8 +164,8 @@ public sealed class Renderer {
             }
             baseline += size * LineSpacing;
          }
-         zones.Add(Zone($"item:{block.Note.Id}", 0, y - size * 0.15f, Divider, block.Height));
-         y += block.Height;
+         zones.Add(Zone($"item:{block.Note.Id}", 0, y - size * 0.15f - gap / 2, Divider, block.Height + gap));
+         y += block.Height + gap;
       }
       if (more > 0)
          Text(canvas, $"+ {more} weitere", textX, y + 40, 36, m_regular, s_grey);
